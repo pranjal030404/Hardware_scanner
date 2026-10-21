@@ -1,0 +1,50 @@
+# Packaging configuration. See docs/PACKAGING.md for commands, artifact paths and what has (and has
+# not) been verified on each platform. `electron-builder` is a devDependency (locked in package-lock.json).
+appId: dev.hardware-intelligence.platform
+productName: Hardware Intelligence Platform
+copyright: Copyright (c) Hardware Intelligence Platform contributors
+directories:
+  output: dist
+  buildResources: build
+# Only the compiled app ships: no sources, tests, scripts, docs or source maps.
+files:
+  - out/**
+  - package.json
+  - "!**/*.map"
+  - "!node_modules/zod/src/**"
+asar: true
+artifactName: ${name}-${version}-${os}-${arch}.${ext}
+electronLanguages: [en-US]
+# Hardening applied to the packaged Electron binary (flipped at package time).
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableCookieEncryption: true
+  onlyLoadAppFromAsar: true
+  grantFileProtocolExtraPrivileges: false
+linux:
+  target:
+    - AppImage
+  icon: icon.png
+  category: System
+  synopsis: Hardware inventory, live events, topology and diagnostics
+  maintainer: Hardware Intelligence Platform contributors
+  desktop:
+    entry:
+      Name: Hardware Intelligence Platform
+      Comment: Hardware inventory, live events, topology and diagnostics
+      Keywords: hardware;inventory;devices;usb;diagnostics;
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: icon.ico
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  # Uninstalling removes the program only. The inventory database lives in %APPDATA% and is kept.
+  deleteAppDataOnUninstall: false
+  shortcutName: Hardware Intelligence Platform
+  uninstallDisplayName: Hardware Intelligence Platform ${version}

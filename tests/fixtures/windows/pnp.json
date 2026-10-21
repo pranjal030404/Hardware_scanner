@@ -1,0 +1,11 @@
+[
+  {"InstanceId":"USB\\ROOT_HUB30\\4&1A2B3C&0&0","FriendlyName":"USB Root Hub (USB 3.0)","Class":"USB","Manufacturer":"(Standard USB HUBs)","Status":"OK","Problem":"CM_PROB_NONE","Service":"USBHUB3","Parent":"PCI\\VEN_8086&DEV_A0ED&SUBSYS_0A1F103C&REV_20\\3&11583659&0&A0"},
+  {"InstanceId":"PCI\\VEN_8086&DEV_A0ED&SUBSYS_0A1F103C&REV_20\\3&11583659&0&A0","FriendlyName":"Intel(R) USB 3.20 eXtensible Host Controller","Class":"USB","Manufacturer":"Intel","Status":"OK","Problem":"CM_PROB_NONE","Service":"USBXHCI","Parent":"ACPI\\PNP0A08\\0"},
+  {"InstanceId":"USB\\VID_046D&PID_C52B\\5&2F3E1C0&0&2","FriendlyName":"USB Composite Device","Class":"USB","Manufacturer":"(Standard USB Host Controller)","Status":"OK","Problem":"CM_PROB_NONE","Service":"usbccgp","Parent":"USB\\ROOT_HUB30\\4&1A2B3C&0&0"},
+  {"InstanceId":"HID\\VID_046D&PID_C52B&MI_00\\6&1B&0&0000","FriendlyName":"HID Keyboard Device","Class":"HIDClass","Manufacturer":"(Standard system devices)","Status":"OK","Problem":"CM_PROB_NONE","Service":"kbdhid","Parent":"USB\\VID_046D&PID_C52B\\5&2F3E1C0&0&2"},
+  {"InstanceId":"USB\\VID_04F2&PID_B6C0\\6&3C&0&4","FriendlyName":"Integrated Camera","Class":"Camera","Manufacturer":"Sunplus","Status":"Error","Problem":"CM_PROB_FAILED_START","Service":"usbvideo","Parent":"USB\\ROOT_HUB30\\4&1A2B3C&0&0"},
+  {"InstanceId":"SCSI\\DISK&VEN_NVME&PROD_SAMSUNG_MZVL2512\\4&2B&0&000000","FriendlyName":"SAMSUNG MZVL2512HCJQ-00B00","Class":"DiskDrive","Manufacturer":"(Standard disk drives)","Status":"OK","Problem":"CM_PROB_NONE","Service":"disk","Parent":null},
+  {"InstanceId":"USB\\VID_1234&PID_0001\\7&0","FriendlyName":null,"Class":"USB","Manufacturer":null,"Status":"Unknown","Problem":"CM_PROB_DISABLED","Service":null,"Parent":null},
+  {"InstanceId":"ROOT\\SYSTEM\\0000","FriendlyName":"Volume Manager","Class":"System","Manufacturer":null,"Status":"OK","Problem":"CM_PROB_NONE"},
+  {"InstanceId":"PCI\\VEN_8086&DEV_A0F0&SUBSYS_00748086&REV_20\\3&11&0&A3","FriendlyName":"Intel(R) Wi-Fi 6 AX201 160MHz","Class":"Net","Manufacturer":"Intel Corporation","Status":"OK","Problem":"CM_PROB_NONE"}
+]

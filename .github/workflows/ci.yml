@@ -1,0 +1,191 @@
+name: CI
+
+# Jobs, from cheapest to most expensive:
+#   check            typecheck + unit tests + production build        (Linux, Windows)
+#   e2e-linux        Electron UI suite from source                    (Linux, xvfb)
+#   package-linux    AppImage build        -> artifact                (build success = the artifact exists)
+#   package-windows  NSIS installer build  -> artifact                (build success = the artifact exists)
+#   smoke-*          install/launch/persist checks on the built artifact
+#
+# Hosted runners are virtual machines: they prove that the packages build, install and start, NOT that
+# hardware collection works on real hardware. Runtime validation on physical machines is a manual
+# checklist (docs/PACKAGING.md). Nothing here publishes a release; artifacts are only uploaded to the run.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: ${{ matrix.os }} — typecheck, unit tests, build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - name: Unit tests (fixture-based; NOT Windows/Linux hardware validation)
+        run: npm test
+      - run: npm run build
+
+  e2e-linux:
+    name: ubuntu-latest — Electron e2e from source (xvfb)
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: sudo apt-get update && sudo apt-get install -y xvfb libgbm1 libnss3 libasound2t64 udev
+      - run: npm ci
+      - run: npm run build
+      # Hosted runners are containers: sysfs is partly empty, so some collectors report
+      # unsupported/unavailable. The e2e asserts app behaviour, not a specific hardware set.
+      - run: xvfb-run -a node tests/e2e/run.mjs
+
+  package-linux:
+    name: package — Linux AppImage
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run package:linux
+      # Fails the job if the AppImage is missing/misnamed, has the wrong architecture, wrong fuses or
+      # unexpected asar content, and writes dist/SHA256SUMS.txt.
+      - name: Verify artifact and write SHA-256
+        run: |
+          ls -l dist
+          node scripts/verify-artifacts.mjs linux dist
+          cat dist/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-appimage
+          if-no-files-found: error
+          path: |
+            dist/hardware-intelligence-platform-*-linux-x86_64.AppImage
+            dist/SHA256SUMS.txt
+
+  smoke-linux:
+    # Runs the packaged AppImage on a VM. Expectations that need real hardware are relaxed here
+    # (device count, udev); the same scripts run strictly on a developer machine.
+    name: smoke — Linux AppImage (virtual machine, best effort)
+    runs-on: ubuntu-latest
+    needs: package-linux
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: sudo apt-get update && sudo apt-get install -y xvfb libgbm1 libnss3 libasound2t64 udev
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-appimage
+          path: dist
+      - run: cd dist && sha256sum -c SHA256SUMS.txt && chmod +x *.AppImage
+      - name: Packaged UI suite and install/upgrade/debug-switch scenarios
+        env:
+          HIP_E2E_MIN_DEVICES: '3'
+          HIP_E2E_UDEV: optional
+        run: |
+          set -eu
+          export HIP_E2E_PACKAGED="$(ls "$PWD"/dist/*.AppImage)"
+          xvfb-run -a node tests/e2e/run.mjs
+          xvfb-run -a node tests/e2e/packaged.mjs
+
+  package-windows:
+    # Native Windows runner: electron-builder uses its own NSIS tooling there, no Wine involved.
+    name: package — Windows x64 NSIS installer
+    runs-on: windows-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run package:win
+      # Fails the job if the installer is missing/misnamed, the app binary is not a PE x64 executable,
+      # the fuses differ from policy or app.asar content is unexpected; writes dist/SHA256SUMS.txt.
+      - name: Verify artifact and write SHA-256
+        run: |
+          Get-ChildItem dist | Format-Table Name, Length
+          node scripts/verify-artifacts.mjs win dist
+          if ($LASTEXITCODE -ne 0) { throw 'artifact verification failed' }
+          Get-Content dist/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          if-no-files-found: error
+          path: |
+            dist/hardware-intelligence-platform-*-win-x64.exe
+            dist/SHA256SUMS.txt
+
+  smoke-windows:
+    # Installs the artifact silently, starts it, checks that the database appears in %APPDATA%, then
+    # uninstalls and checks the database is KEPT. This is install/launch evidence on a hosted VM only:
+    # it says nothing about Windows hardware collection (see docs/PACKAGING.md, Windows checklist).
+    name: smoke — Windows installer (install, launch, uninstall; VM only)
+    runs-on: windows-latest
+    needs: package-windows
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: dist
+      - name: Install, launch, persist, uninstall
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installerFile = Get-ChildItem dist -Filter *.exe | Select-Object -First 1
+          $expected = (Get-Content dist/SHA256SUMS.txt).Split(' ')[0]
+          $actual = (Get-FileHash $installerFile.FullName -Algorithm SHA256).Hash.ToLower()
+          if ($expected -ne $actual) { throw "Checksum mismatch: $expected vs $actual" }
+          $installer = $installerFile.FullName
+          $target = Join-Path $env:RUNNER_TEMP 'hip-install'
+          $data = Join-Path $env:APPDATA 'Hardware Intelligence Platform'
+          Start-Process -FilePath $installer -ArgumentList '/S', "/D=$target" -Wait
+          $app = Join-Path $target 'Hardware Intelligence Platform.exe'
+          if (-not (Test-Path $app)) { throw "Installed executable missing: $app" }
+          if (-not (Test-Path (Join-Path $target 'Uninstall Hardware Intelligence Platform.exe'))) { throw 'Uninstaller missing' }
+          $p = Start-Process -FilePath $app -PassThru
+          $db = Join-Path $data 'inventory.sqlite'
+          for ($i = 0; $i -lt 60 -and -not (Test-Path $db); $i++) { Start-Sleep 1 }
+          if (-not (Test-Path $db)) { throw "Database was not created at $db" }
+          Start-Sleep 15
+          if ($p.HasExited) { throw "App exited early with code $($p.ExitCode)" }
+          [void]$p.CloseMainWindow()
+          if (-not $p.WaitForExit(20000)) { $p.Kill(); throw 'App did not exit after the window was closed' }
+          Write-Host "Exit code: $($p.ExitCode)"
+          Start-Process -FilePath (Join-Path $target 'Uninstall Hardware Intelligence Platform.exe') -ArgumentList '/S' -Wait
+          Start-Sleep 5
+          if (Test-Path $app) { throw 'Application files were not removed by the uninstaller' }
+          if (-not (Test-Path $db)) { throw 'Uninstall deleted the user database' }
+          Write-Host 'Install, launch, shutdown, uninstall OK; user database kept.'

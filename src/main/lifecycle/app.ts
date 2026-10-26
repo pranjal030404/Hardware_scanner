@@ -23,6 +23,8 @@ import { providersForPlatform } from '../../metrics'
 import * as os from 'node:os'
 import { disabledSnapshot, ProcessMonitor } from '../../processes'
 import { SysReader } from '@collectors/core/sysreader'
+import { runCommand } from '@collectors/core/runner'
+import { PointingStickControl } from '../../input-control/pointing-stick'
 
 // Must run before app 'ready'. The renderer is served from this scheme, not file://, so the packaged
 // binary can keep the GrantFileProtocolExtraPrivileges fuse disabled.
@@ -51,7 +53,7 @@ export async function startApp(): Promise<void> {
   const eventRepo = new EventRepo(db)
   const bus = new EventBus(eventRepo)
   const platform = process.platform
-  const inventory = new InventoryService({ db, collectors: allCollectors, makeContext: () => hostContext(), bus, platform })
+  const inventory = new InventoryService({ db, collectors: allCollectors, makeContext: () => hostContext(), bus, platform, disabled: () => settingsRepo.getAll().disabledCollectors })
   const settings = (): Settings => settingsRepo.getAll()
   const monitor = new MonitorService(inventory, bus, { intervalSec: settings().pollIntervalSec }, platform === 'linux' ? udevWatcherFactory : null)
 
@@ -76,6 +78,7 @@ export async function startApp(): Promise<void> {
   const snapshots = new SnapshotService({ db, inventory, appVersion: app.getVersion(), freshMs: () => Math.max(settings().pollIntervalSec * 3000, 120_000) })
 
   const procMon = new ProcessMonitor(new SysReader('/'), () => performance.now())
+  const pointingStick = new PointingStickControl({ reader: new SysReader('/'), run: runCommand, env: process.env, platform })
   const handlers: Handlers = {
     'app:info': () => ({
       version: app.getVersion(), electron: process.versions.electron ?? '', node: process.versions.node, platform, arch: process.arch,
@@ -124,12 +127,15 @@ export async function startApp(): Promise<void> {
     'monitor:status': () => monitor.status(),
     'monitor:setPaused': ({ paused }) => monitor.setPaused(paused),
     'settings:get': () => settings(),
-    'settings:set': ({ key, value }) => {
+    'input:pointingStick': () => pointingStick.status(),
+    'settings:set': async ({ key, value }) => {
+      // Switch the device first: a setting that could not be applied is not saved.
+      if (key === 'pointingStickEnabled' && typeof value === 'boolean') await pointingStick.setEnabled(value)
       const next = settingsRepo.set(key, value)
       if (key === 'pollIntervalSec') monitor.setInterval(next.pollIntervalSec)
       if (key === 'liveMonitoring') monitor.setPaused(!next.liveMonitoring)
       if (key === 'theme') nativeTheme.themeSource = next.theme
-      if (key.startsWith('diag')) diagnostics.schedule(200)
+      if (key.startsWith('diag') || key === 'disabledCollectors') diagnostics.schedule(200)
       if (key.startsWith('metrics')) metrics.applySettings()
       return next
     },
@@ -171,6 +177,8 @@ export async function startApp(): Promise<void> {
   diagnostics.start()
   void metrics.start()
   if (settings().liveMonitoring) monitor.start()
+  // The compositor forgets the switch on logout, so a saved "off" is re-applied at startup.
+  if (!settings().pointingStickEnabled) pointingStick.setEnabled(false).catch((e) => console.warn('pointing stick:', (e as Error).message))
   else void inventory.scan()
 
   let closing = false

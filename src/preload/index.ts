@@ -15,6 +15,7 @@ const api: HipApi = {
   topology: () => ipcRenderer.invoke('topology:get'),
   collectorHealth: () => ipcRenderer.invoke('collectors:health'),
   metricsStatus: () => ipcRenderer.invoke('metrics:status'),
+  pointingStickStatus: () => ipcRenderer.invoke('input:pointingStick'),
   topProcesses: (limit) => ipcRenderer.invoke('processes:top', limit === undefined ? {} : { limit }),
   queryMetrics: (series, windowSec, maxPoints) => ipcRenderer.invoke('metrics:query', { series, windowSec, ...(maxPoints === undefined ? {} : { maxPoints }) }),
   setMetricsPaused: (paused) => ipcRenderer.invoke('metrics:setPaused', { paused }),

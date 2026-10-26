@@ -170,7 +170,9 @@ export const CollectorHealthSchema = z.object({
   lastSuccessAt: z.string().nullable(),
   durationMs: z.number().nullable(),
   deviceCount: z.number().nullable(),
-  limitations: z.array(LimitationSchema)
+  limitations: z.array(LimitationSchema),
+  /** Switched off in Settings: not run by scans, so its devices are kept as last known. */
+  disabled: z.boolean().optional()
 })
 export type CollectorHealth = z.infer<typeof CollectorHealthSchema>
 
@@ -244,7 +246,15 @@ export const SettingsSchema = z.object({
   metricsIntervalSec: z.number().int().min(1).max(60).default(5),
   metricsRetentionHours: z.number().int().min(1).max(720).default(24),
   /** Opt-in: reads process names, memory and CPU share. Off by default because process lists are personal data. */
-  processMonitoring: z.boolean().default(false)
+  processMonitoring: z.boolean().default(false),
+  /** Collectors switched off in Settings; they are skipped by every scan. */
+  disabledCollectors: z.array(z.string().max(64)).max(64).default([]),
+  /** Metric providers switched off in Settings; they are not sampled. */
+  metricsDisabledProviders: z.array(z.string().max(64)).max(64).default([]),
+  /** Sidebar pages hidden in Settings (Overview and Settings cannot be hidden). */
+  hiddenPages: z.array(z.string().max(32)).max(32).default([]),
+  /** Laptop pointing stick (TrackPoint-style nub); switched through the desktop compositor. */
+  pointingStickEnabled: z.boolean().default(true)
 })
 export type Settings = z.infer<typeof SettingsSchema>
 export const SETTING_KEYS = Object.keys(SettingsSchema.shape) as (keyof Settings)[]
@@ -571,7 +581,7 @@ export type SnapshotComparison = z.infer<typeof SnapshotComparisonSchema>
 
 // ---------- Metrics ----------
 
-export const MetricProviderStatusSchema = z.enum(['ok', 'partial', 'unavailable', 'unsupported', 'error', 'paused', 'starting'])
+export const MetricProviderStatusSchema = z.enum(['ok', 'partial', 'unavailable', 'unsupported', 'error', 'paused', 'starting', 'disabled'])
 export type MetricProviderStatus = z.infer<typeof MetricProviderStatusSchema>
 
 export const MetricSeriesSummarySchema = z.object({

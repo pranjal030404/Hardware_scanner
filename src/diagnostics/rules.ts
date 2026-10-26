@@ -31,7 +31,7 @@ const collectorHealth: DiagnosticRule = {
   severityPolicy: 'error → medium; permission required → low; tool/interface unavailable or partial permission limits → info.',
   dataUsed: 'Latest run status and limitations of every supported collector.',
   evaluate(ctx) {
-    const scanned = ctx.collectors.filter((c) => c.status !== 'unsupported' && c.status !== 'not_scanned' && c.lastRunAt)
+    const scanned = ctx.collectors.filter((c) => !c.disabled && c.status !== 'unsupported' && c.status !== 'not_scanned' && c.lastRunAt)
     if (!scanned.length) return { status: 'insufficient_data', reason: 'No collector has run yet' }
     const findings: RuleFinding[] = []
     for (const c of scanned) {

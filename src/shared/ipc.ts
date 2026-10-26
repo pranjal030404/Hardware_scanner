@@ -45,6 +45,7 @@ export const IPC_REQUEST_SCHEMAS = {
   'metrics:setPaused': z.object({ paused: z.boolean() }).strict(),
   'processes:top': z.object({ limit: z.number().int().min(1).max(50).default(15) }).strict(),
   'collectors:health': z.undefined(),
+  'input:pointingStick': z.undefined(),
   'events:recent': z.object({ limit: z.number().int().min(1).max(1000).default(100) }).strict(),
   'monitor:status': z.undefined(),
   'monitor:setPaused': z.object({ paused: z.boolean() }).strict(),

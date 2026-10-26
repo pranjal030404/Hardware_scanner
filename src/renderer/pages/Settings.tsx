@@ -1,8 +1,10 @@
 import { Database, FileDown } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { Settings } from '@shared/schemas'
+import { FeatureControls } from '../components/FeatureControls'
 import { ErrorBox, PageHeader, Spinner } from '../components/ui'
 import { useLoad } from '../hooks/useLoad'
+import { SETTINGS_CHANGED } from '../nav'
 import { api } from '../services/api'
 
 function NumberField({ label, hint, value, min, max, onCommit }: { label: string; hint?: string; value: number; min: number; max: number; onCommit: (n: number) => Promise<void> }): JSX.Element {
@@ -33,7 +35,7 @@ export function SettingsPage(): JSX.Element {
   useEffect(() => { if (q.data) setSettings(q.data[0]) }, [q.data])
 
   const set = async <K extends keyof Settings>(k: K, v: Settings[K]): Promise<void> => {
-    try { setSettings(await api.setSetting(k, v)); setError(null) } catch (e) { setError((e as Error).message) }
+    try { setSettings(await api.setSetting(k, v)); setError(null); window.dispatchEvent(new Event(SETTINGS_CHANGED)) } catch (e) { setError((e as Error).message) }
   }
 
   if (q.error) return <><PageHeader title="Settings" /><ErrorBox message={q.error} onRetry={q.reload} /></>
@@ -53,6 +55,12 @@ export function SettingsPage(): JSX.Element {
       {error && <ErrorBox message={error} />}
       {msg && <div className="banner banner-info" role="status">{msg}</div>}
       <div className="stack">
+        <section className="card" aria-labelledby="features-heading">
+          <h2 id="features-heading">Features & controls</h2>
+          <p className="muted small">Switch any part of the application on or off. Changes apply immediately and are saved.</p>
+          <FeatureControls settings={settings} set={set} />
+        </section>
+
         <section className="card">
           <h2>Appearance</h2>
           <label className="field"><span>Theme</span>
@@ -64,18 +72,11 @@ export function SettingsPage(): JSX.Element {
 
         <section className="card">
           <h2>Monitoring</h2>
-          {toggle('liveMonitoring', 'Live hardware monitoring', '— react to plug/unplug events and rescan periodically')}
           <NumberField label="Safety rescan interval (seconds)" hint="catches missed events and refreshes live readings" value={settings.pollIntervalSec} min={10} max={3600} onCommit={(n) => set('pollIntervalSec', n)} />
         </section>
 
         <section className="card">
-          <h2>Processes</h2>
-          {toggle('processMonitoring', 'Process monitoring', '— show top processes by CPU and memory (names only; off by default because process lists are personal data)')}
-        </section>
-
-        <section className="card">
           <h2>Metrics</h2>
-          {toggle('metricsEnabled', 'Sample live metrics', '— CPU, memory, network, disk I/O, battery, temperatures, fans')}
           <NumberField label="Sampling interval (seconds)" value={settings.metricsIntervalSec} min={1} max={60} onCommit={(n) => set('metricsIntervalSec', n)} />
           <NumberField label="Keep metric history for (hours)" value={settings.metricsRetentionHours} min={1} max={720} onCommit={(n) => set('metricsRetentionHours', n)} />
           <p className="muted small">Metrics are sampled from lightweight OS counters, independent of hardware rescans, and written in batches.</p>
@@ -99,8 +100,7 @@ export function SettingsPage(): JSX.Element {
           <NumberField label="Swap thrashing: sustained swap-in (pages/s)" value={settings.diagSwapInPagesPerSec} min={1} max={1000000} onCommit={(n) => set('diagSwapInPagesPerSec', n)} />
           <NumberField label="Thermal-throttle look-back (minutes)" value={settings.diagThrottleWindowMin} min={5} max={1440} onCommit={(n) => set('diagThrottleWindowMin', n)} />
           <NumberField label="Report missing devices seen within (hours)" value={settings.diagMissingWindowHours} min={1} max={8760} onCommit={(n) => set('diagMissingWindowHours', n)} />
-          {toggle('diagNetworkDownEnabled', 'Report disconnected network interfaces', '— off by default; a disconnected interface is often normal')}
-          <p className="muted small">Individual rules can be enabled or disabled on the Diagnostics page.</p>
+          <p className="muted small">Features, collectors, rules, metric providers and pages are switched on or off under Features & controls.</p>
         </section>
 
         <section className="card">

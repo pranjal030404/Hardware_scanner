@@ -1,10 +1,11 @@
-import { Activity, Cpu, Gauge, LayoutDashboard, History, Network, Settings as SettingsIcon, Share2, ShieldAlert, ShieldCheck, Thermometer, ListTree, GitCompare } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { Gauge } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Category } from '@shared/schemas'
 import { EventsProvider, useEvents } from './hooks/useEvents'
 import { Badge } from './components/ui'
 import { useLoad } from './hooks/useLoad'
 import { api } from './services/api'
+import { SETTINGS_CHANGED, visibleNav } from './nav'
 import { MonitorPage } from './pages/Monitor'
 import { CpuMemoryPage } from './pages/CpuMemory'
 import { SensorsPage } from './pages/Sensors'
@@ -38,21 +39,6 @@ export type Route =
 
 export type Navigate = (r: Route) => void
 
-const NAV: { page: Route['page']; label: string; icon: typeof Cpu }[] = [
-  { page: 'overview', label: 'Overview', icon: LayoutDashboard },
-  { page: 'inventory', label: 'Hardware', icon: Cpu },
-  { page: 'topology', label: 'Topology', icon: Share2 },
-  { page: 'diagnostics', label: 'Diagnostics', icon: ShieldAlert },
-  { page: 'snapshots', label: 'Snapshots', icon: History },
-  { page: 'monitor', label: 'Monitor', icon: Gauge },
-  { page: 'cpu', label: 'CPU & Memory', icon: Cpu },
-  { page: 'sensors', label: 'Sensors', icon: Thermometer },
-  { page: 'processes', label: 'Processes', icon: ListTree },
-  { page: 'compare', label: 'Device diff', icon: GitCompare },
-  { page: 'events', label: 'Events', icon: Activity },
-  { page: 'collectors', label: 'Collectors', icon: ShieldCheck },
-  { page: 'settings', label: 'Settings', icon: SettingsIcon }
-]
 
 function MonitorPill(): JSX.Element {
   const { monitor } = useEvents()
@@ -65,18 +51,26 @@ function MonitorPill(): JSX.Element {
 function Shell(): JSX.Element {
   const [route, setRoute] = useState<Route>({ page: 'overview' })
   const navigate: Navigate = useCallback((r) => setRoute(r), [])
+  const [hidden, setHidden] = useState<readonly string[]>([])
+  useEffect(() => {
+    const load = (): void => void api.getSettings().then((s) => setHidden(s.hiddenPages), () => undefined)
+    load()
+    window.addEventListener(SETTINGS_CHANGED, load)
+    return () => window.removeEventListener(SETTINGS_CHANGED, load)
+  }, [])
+  const nav = useMemo(() => visibleNav(hidden), [hidden])
 
   useEffect(() => {
     // Keyboard navigation: Alt+1..6 jumps between sections.
     const h = (e: KeyboardEvent): void => {
       if (!e.altKey || e.ctrlKey || e.metaKey) return
       const i = Number(e.key) - 1
-      const item = NAV[i]
+      const item = nav[i]
       if (item) { e.preventDefault(); navigate({ page: item.page } as Route) }
     }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
-  }, [navigate])
+  }, [navigate, nav])
 
   const diag = useLoad(() => api.diagnosticsStatus(), [])
   const activeFindings = diag.data?.counts.byStatus['active'] ?? 0
@@ -86,7 +80,7 @@ function Shell(): JSX.Element {
       <nav className="sidebar" aria-label="Primary">
         <div className="brand"><Gauge size={18} aria-hidden /><span>Hardware<br />Intelligence</span></div>
         <ul>
-          {NAV.map((n, i) => (
+          {nav.map((n, i) => (
             <li key={n.page}>
               <button className={`nav-item ${active === n.page ? 'active' : ''}`} aria-current={active === n.page ? 'page' : undefined} onClick={() => navigate({ page: n.page } as Route)} title={`Alt+${i + 1}`}>
                 <n.icon size={16} aria-hidden /><span>{n.label}</span>{n.page === 'diagnostics' && activeFindings > 0 && <span className="nav-count" aria-label={`${activeFindings} active findings`}>{activeFindings}</span>}
@@ -124,4 +118,3 @@ export function App(): JSX.Element {
   )
 }
 
-void Network

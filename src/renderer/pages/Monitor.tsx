@@ -10,7 +10,7 @@ import { api } from '../services/api'
 
 const WINDOWS = [{ l: '1 min', s: 60 }, { l: '5 min', s: 300 }, { l: '15 min', s: 900 }, { l: '1 hour', s: 3600 }, { l: '6 hours', s: 21600 }, { l: '24 hours', s: 86400 }]
 const INTERVALS = [1, 2, 5, 10, 30, 60]
-const PROVIDER_TONE = { ok: 'ok', partial: 'warn', unavailable: 'muted', unsupported: 'muted', error: 'bad', paused: 'muted', starting: 'info' } as const
+const PROVIDER_TONE = { ok: 'ok', partial: 'warn', unavailable: 'muted', unsupported: 'muted', error: 'bad', paused: 'muted', starting: 'info', disabled: 'muted' } as const
 
 /** Name the source the provider actually reported; the Linux path text is only shown for Linux-path sources. */
 function srcLabel(actual: string | undefined, linuxText: string): string {

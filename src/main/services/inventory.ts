@@ -14,6 +14,8 @@ export interface InventoryDeps {
   makeContext: () => CollectContext
   bus: EventBus
   platform: string
+  /** Collector ids switched off in Settings. */
+  disabled?: () => readonly string[]
 }
 
 /**
@@ -45,7 +47,9 @@ export class InventoryService {
   }
 
   getHealth(staleAfterMs?: number, now = Date.now()): CollectorHealth[] {
+    const off = new Set(this.d.disabled?.() ?? [])
     return [...this.health.values()].map((h) => {
+      if (off.has(h.id)) return { ...h, disabled: true }
       // An old successful scan is reported as stale rather than silently "available".
       if (staleAfterMs && h.status === 'available' && h.lastSuccessAt && now - Date.parse(h.lastSuccessAt) > staleAfterMs) {
         return { ...h, status: 'stale' as const, message: 'No successful scan within the expected interval' }
@@ -77,7 +81,9 @@ export class InventoryService {
     const t0 = performance.now()
     const startedAt = new Date()
     const at = startedAt.toISOString()
-    const selected = this.d.collectors.filter((c) => !only || only.includes(c.id))
+    // A disabled collector never runs, so it can never mark its devices missing.
+    const off = new Set(this.d.disabled?.() ?? [])
+    const selected = this.d.collectors.filter((c) => !off.has(c.id) && (!only || only.includes(c.id)))
     const outcomes = await Promise.all(
       selected.map((c) => {
         this.d.bus.publish({ type: 'collector.started', summary: `${c.id} started`, collectorId: c.id })

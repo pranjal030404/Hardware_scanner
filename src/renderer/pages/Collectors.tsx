@@ -53,8 +53,8 @@ export function CollectorsPage(): JSX.Element {
                 <p className="muted small">{c.method}</p>
               </div>
               <div className="collector-actions">
-                <CollectorStatusBadge status={c.status} partial={c.partial} />
-                <button className="btn btn-sm" disabled={busy !== null} onClick={() => void rescan([c.id])} aria-label={`Rescan ${c.id}`}><RefreshCw size={12} className={busy === c.id ? 'spin' : ''} /> Rescan</button>
+                {c.disabled ? <Badge tone="muted" title="Switched off in Settings → Features & controls">disabled</Badge> : <CollectorStatusBadge status={c.status} partial={c.partial} />}
+                <button className="btn btn-sm" disabled={busy !== null || c.disabled} onClick={() => void rescan([c.id])} aria-label={`Rescan ${c.id}`}><RefreshCw size={12} className={busy === c.id ? 'spin' : ''} /> Rescan</button>
               </div>
             </div>
             <dl className="kv inline-kv">

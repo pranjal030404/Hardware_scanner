@@ -143,7 +143,16 @@ export class MetricsService {
     try {
       const nowMs = this.clock().getTime()
       const mono = this.mono()
-      for (const st of this.states) await this.runProvider(st, nowMs, mono)
+      const off = new Set(this.d.getSettings().metricsDisabledProviders)
+      for (const st of this.states) {
+        if (off.has(st.provider.id)) {
+          st.status = 'disabled'
+          st.message = 'Switched off in Settings'
+          st.prev = undefined // re-baseline when switched back on
+          continue
+        }
+        await this.runProvider(st, nowMs, mono)
+      }
       this.maybeFlush(mono)
     } finally {
       this.busy = false

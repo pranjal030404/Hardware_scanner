@@ -5,6 +5,7 @@
 import type { MetricSeriesData, MetricsStatus, SnapshotComparison, SnapshotMeta, DiagnosticsStatus, Finding, FindingDetail, FindingStatus, Severity, FindingCategory, AppInfo, CollectorHealth, DeviceDetail, DeviceSummary, HipEvent, MonitorStatus, Overview, ScanSummary, Settings, Category, DeviceStatus } from './schemas'
 
 import type { ProcessSnapshot } from '../processes'
+import type { PointingStickStatus } from '../input-control/pointing-stick'
 
 export const EVENT_CHANNEL = 'hip:event'
 
@@ -49,6 +50,7 @@ export interface IpcResponses {
   'collectors:health': CollectorHealth[]
   'metrics:status': MetricsStatus
   'processes:top': ProcessSnapshot
+  'input:pointingStick': PointingStickStatus
   'metrics:query': MetricSeriesData[]
   'metrics:setPaused': MetricsStatus
   'snapshots:list': SnapshotMeta[]
@@ -82,6 +84,7 @@ export interface HipApi {
   collectorHealth(): Promise<CollectorHealth[]>
   metricsStatus(): Promise<MetricsStatus>
   topProcesses(limit?: number): Promise<ProcessSnapshot>
+  pointingStickStatus(): Promise<PointingStickStatus>
   queryMetrics(series: { metric: string; deviceId: string }[], windowSec: number, maxPoints?: number): Promise<MetricSeriesData[]>
   setMetricsPaused(paused: boolean): Promise<MetricsStatus>
   listSnapshots(): Promise<SnapshotMeta[]>

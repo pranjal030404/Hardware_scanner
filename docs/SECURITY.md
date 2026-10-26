@@ -25,8 +25,11 @@ The app is privileged by nature (it reads hardware state), so the renderer is tr
 
 - Read-only by default; runs as the normal user. Root-only data is reported as a limitation, not escalated.
 - Process execution uses `spawn(file, args, {shell:false})` with timeouts, output caps and kill-on-timeout.
-  Only fixed tools are invoked (`udevadm`, `smartctl`, `bluetoothctl`, `powershell.exe`); no collector
+  Only fixed tools are invoked (`udevadm`, `smartctl`, `bluetoothctl`, `powershell.exe`, `hyprctl`); no collector
   output is ever executed or interpolated into a command.
+- The one state-changing action is the opt-in pointing-stick switch (Settings → Features & controls). It
+  calls `hyprctl keyword device[<name>]:enabled <bool>` for devices udev tags `ID_INPUT_POINTINGSTICK`,
+  only when Hyprland lists that exact name. It needs no root and the compositor resets it on logout.
 - No USB writes, no serial commands, no firmware/driver actions.
 
 ## Data handling

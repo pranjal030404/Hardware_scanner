@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- Hardware Intelligence Platform: one action per privileged helper. Each action can only run its
+     own fixed, root-owned program; neither accepts a script or a command from the caller. -->
+<policyconfig>
+  <vendor>Hardware Intelligence Platform</vendor>
+  <action id="dev.hardware-intelligence.perf.apply">
+    <description>Change CPU/GPU performance settings</description>
+    <message>Authentication is required to change CPU and GPU performance settings (they reset on reboot).</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/libexec/hardware-intelligence/hip-perf-helper</annotate>
+  </action>
+  <action id="dev.hardware-intelligence.hid.probe">
+    <description>Read raw signals from a USB/Bluetooth input device</description>
+    <message>Authentication is required to read raw signals from the selected input device (read-only).</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/libexec/hardware-intelligence/hip-hid-probe</annotate>
+  </action>
+</policyconfig>

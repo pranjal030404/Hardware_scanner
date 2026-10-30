@@ -24,7 +24,12 @@ import * as os from 'node:os'
 import { disabledSnapshot, ProcessMonitor } from '../../processes'
 import { SysReader } from '@collectors/core/sysreader'
 import { runCommand } from '@collectors/core/runner'
-import { PointingStickControl } from '../../input-control/pointing-stick'
+import { DeviceControl } from '../../device-control'
+import { DeviceTester } from '../../device-test/engine'
+import { PerformanceService } from '../../performance'
+import { PerformanceRepo } from '../database/performance-repo'
+import { CircuitRepo } from '../database/circuit-repo'
+import { helperStatus } from '../../privileged/helpers'
 
 // Must run before app 'ready'. The renderer is served from this scheme, not file://, so the packaged
 // binary can keep the GrantFileProtocolExtraPrivileges fuse disabled.
@@ -62,6 +67,23 @@ export async function startApp(): Promise<void> {
     makeContext: (monoMs) => ({ reader: new SysReader('/'), os, monoMs })
   })
 
+  // Performance tuning. Monitoring needs no privileges; writable controls need the optional, separately installed helper.
+  const circuits = new CircuitRepo(db)
+  const perfRepo = new PerformanceRepo(db)
+  const startedAt = new Date().toISOString()
+  perfRepo.closeInterrupted(startedAt)
+  perfRepo.closeInterruptedTests(startedAt)
+  let perfHelper = { usable: false, reason: null as string | null }
+  const refreshPerfHelper = (): Promise<void> => helperStatus('hip-perf-helper', platform).then((h) => { perfHelper = { usable: h.usable, reason: h.reason } }, () => undefined)
+  void refreshPerfHelper()
+  const perf = new PerformanceService({
+    reader: new SysReader('/'), run: runCommand, platform, store: perfRepo, threads: os.cpus().length,
+    tuningEnabled: () => settings().perfTuningEnabled,
+    limits: () => ({ maxTestSeconds: settings().perfTestMaxSec, minIntervalMs: settings().perfTestMinIntervalMs }),
+    cpus: () => os.cpus().map((c) => ({ model: c.model, speed: c.speed })),
+    exists: (p) => fs.access(p).then(() => true, () => false)
+  })
+
   const diagnostics = new DiagnosticsService({
     db, inventory: inventory.repo, events: eventRepo, bus, getSettings: settings, getMonitor: () => monitor.status(),
     getCollectors: () => inventory.getHealth(Math.max(settings().pollIntervalSec * 5000, 300_000)),
@@ -72,13 +94,25 @@ export async function startApp(): Promise<void> {
         const d = metrics.query([{ metric, deviceId: x.deviceId }], windowMs, 600)[0]!
         return { deviceId: x.deviceId, deviceName: x.deviceName, metric, unit: d.unit, source: d.source, points: d.points, stale: d.stale }
       })
-    }
+    },
+    getPerformance: () => platform === 'linux'
+      ? { tuningEnabled: settings().perfTuningEnabled, helperUsable: perfHelper.usable, helperReason: perfHelper.reason, lastTx: perfRepo.recentTx(1)[0] ?? null, failedRollbacks: perfRepo.failedRollbacks(), lastTest: perfRepo.tests(1)[0] ?? null }
+      : null
   })
 
   const snapshots = new SnapshotService({ db, inventory, appVersion: app.getVersion(), freshMs: () => Math.max(settings().pollIntervalSec * 3000, 120_000) })
 
   const procMon = new ProcessMonitor(new SysReader('/'), () => performance.now())
-  const pointingStick = new PointingStickControl({ reader: new SysReader('/'), run: runCommand, env: process.env, platform })
+  const devices = new DeviceControl({ reader: new SysReader('/'), run: runCommand, env: process.env, platform, disabledInputs: () => settings().disabledInputs })
+  const tester = new DeviceTester({
+    reader: new SysReader('/'), run: runCommand, platform,
+    installScript: app.isPackaged ? join(process.resourcesPath, 'linux', 'install.sh') : join(app.getAppPath(), 'resources', 'linux', 'install.sh'),
+    disabledInputNodes: async () => {
+      const off = new Set(settings().disabledInputs)
+      if (!off.size) return []
+      return (await devices.inputGroups()).groups.filter((g) => off.has(g.id)).flatMap((g) => g.nodes)
+    }
+  })
   const handlers: Handlers = {
     'app:info': () => ({
       version: app.getVersion(), electron: process.versions.electron ?? '', node: process.versions.node, platform, arch: process.arch,
@@ -127,15 +161,48 @@ export async function startApp(): Promise<void> {
     'monitor:status': () => monitor.status(),
     'monitor:setPaused': ({ paused }) => monitor.setPaused(paused),
     'settings:get': () => settings(),
-    'input:pointingStick': () => pointingStick.status(),
-    'settings:set': async ({ key, value }) => {
-      // Switch the device first: a setting that could not be applied is not saved.
-      if (key === 'pointingStickEnabled' && typeof value === 'boolean') await pointingStick.setEnabled(value)
+    'devices:controls': () => devices.list(),
+    'devices:setEnabled': async ({ id, enabled }) => {
+      // Switch the device first: a switch that could not be applied is not saved.
+      settingsRepo.set('disabledInputs', await devices.set(id, enabled))
+      return devices.list()
+    },
+    'perf:state': async () => { await refreshPerfHelper(); return perf.state() },
+    'perf:live': () => perf.live(),
+    // Every change ends with a diagnostics pass so verification problems surface as findings.
+    'perf:applyProfile': async ({ id }) => { try { return await perf.applyProfile(id) } finally { diagnostics.schedule(200) } },
+    'perf:applyCustom': async ({ label, values }) => { try { return await perf.applyCustom(values, label) } finally { diagnostics.schedule(200) } },
+    'perf:restore': async ({ target }) => { try { return await perf.restore(target) } finally { diagnostics.schedule(200) } },
+    'perf:history': ({ limit }) => perf.history(limit),
+    'perf:saveProfile': ({ name }) => perf.saveProfile(name),
+    'perf:deleteProfile': ({ id }) => perf.deleteProfile(id),
+    'perf:testStart': async ({ mode, seconds, intervalMs }) => {
+      const p = await perf.startTest(mode, seconds, intervalMs)
+      void perf.tests.settled().then(() => diagnostics.schedule(200))
+      return p
+    },
+    'perf:testPoll': () => perf.tests.progress(),
+    'perf:testCancel': () => perf.tests.cancel(),
+    'perf:tests': ({ limit }) => perf.listTests(limit),
+    'perf:test': ({ id }) => perf.getTest(id),
+    'circuit:list': () => circuits.list(),
+    'circuit:save': ({ id, name, design }) => circuits.save(id, name, design, new Date().toISOString()),
+    'circuit:load': ({ id }) => circuits.load(id),
+    'circuit:delete': ({ id }) => (circuits.remove(id), circuits.list()),
+    'devtest:targets': () => tester.targets(),
+    'devtest:check': ({ targetId }) => tester.run(targetId),
+    'devtest:deepStart': ({ targetId, node, seconds }) => tester.deepStart(targetId, node, seconds),
+    'devtest:deepPoll': ({ sessionId }) => tester.deepProgress(sessionId),
+    'devtest:liveStart': ({ targetId }) => tester.startLive(targetId),
+    'devtest:livePoll': ({ sessionId }) => tester.liveState(sessionId),
+    'devtest:liveStill': ({ sessionId, durationMs }) => tester.startStill(sessionId, durationMs),
+    'devtest:liveStop': async () => (await tester.stopLive('Stopped'), null),
+    'settings:set': ({ key, value }) => {
       const next = settingsRepo.set(key, value)
       if (key === 'pollIntervalSec') monitor.setInterval(next.pollIntervalSec)
       if (key === 'liveMonitoring') monitor.setPaused(!next.liveMonitoring)
       if (key === 'theme') nativeTheme.themeSource = next.theme
-      if (key.startsWith('diag') || key === 'disabledCollectors') diagnostics.schedule(200)
+      if (key.startsWith('diag') || key === 'disabledCollectors' || key === 'perfTuningEnabled') diagnostics.schedule(200)
       if (key.startsWith('metrics')) metrics.applySettings()
       return next
     },
@@ -177,9 +244,16 @@ export async function startApp(): Promise<void> {
   diagnostics.start()
   void metrics.start()
   if (settings().liveMonitoring) monitor.start()
-  // The compositor forgets the switch on logout, so a saved "off" is re-applied at startup.
-  if (!settings().pointingStickEnabled) pointingStick.setEnabled(false).catch((e) => console.warn('pointing stick:', (e as Error).message))
   else void inventory.scan()
+  // The compositor forgets device switches on logout and when a device is re-plugged: re-apply saved "off" switches.
+  const reapply = (): void => void devices.reapply().catch((e) => console.warn('device switches:', (e as Error).message))
+  reapply()
+  let reapplyTimer: NodeJS.Timeout | null = null
+  bus.subscribe((e) => {
+    if (e.type !== 'device.connected') return
+    if (reapplyTimer) clearTimeout(reapplyTimer)
+    reapplyTimer = setTimeout(reapply, 1500)
+  })
 
   let closing = false
   app.on('before-quit', (e) => {
@@ -189,15 +263,20 @@ export async function startApp(): Promise<void> {
     monitor.stop()
     diagnostics.stop()
     metrics.stop()
+    // A running test is stopped and recorded as cancelled before the database closes.
+    void perf.tests.cancel().catch(() => undefined).finally(() => shutdown())
+  })
+  const shutdown = (): void => {
     try {
       eventRepo.prune(settings().eventRetentionDays, settings().maxEvents)
+      perfRepo.prune(settings().perfHistoryDays)
       db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
       db.close()
     } catch (err) {
       console.error('shutdown cleanup failed', err)
     }
     app.quit()
-  })
+  }
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()
   })

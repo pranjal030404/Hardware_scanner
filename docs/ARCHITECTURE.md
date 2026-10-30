@@ -108,3 +108,20 @@ downsample by bucket mean, and report `intervalMs` so charts break lines across 
 
 **Platform differences:** Linux has all six providers. Windows/macOS use Node's `os` module for CPU and memory
 only (fixture-tested, unverified on Windows); network, disk, battery and temperature metrics are not available there.
+
+## Circuit lab
+`src/circuit/` is pure (no Electron, no I/O): `parts.ts` catalogue and geometry, `netlist.ts`, `solver.ts` + `sim.ts` (nodal analysis, state iteration), `engine.ts` (`evaluate(design)` → issues, per-part status, firmware links, battery reading), `firmware.ts` (virtual player), `edit.ts` (immutable editing), `schema.ts` (zod, shared by IPC and JSON import). The page (`pages/Circuit.tsx`) re-evaluates on every edit. Saved designs live in `circuit_designs` (migration 006).
+
+## Performance tuning
+
+`src/performance/`: `capabilities.ts` (read-only discovery: snapshot of cpufreq/intel_pstate, RAPL, Intel
+i915/xe, amdgpu, nvidia-smi, tuned; per-control status/ranges/sources; telemetry with source and time; a
+hardware fingerprint), `profiles.ts` (built-in plans from device data, validation), `transactions.ts`
+(`TuningService`: one operation at a time via `PerfLock`, validate → record previous → `pkexec` installed
+helper → read back → verify → roll back on partial failure), `stability.ts` (test sessions: SHA-256 worker
+workload or monitoring only), `windows.ts` (monitoring only), `index.ts` (`PerformanceService` facade).
+Mutation never goes through an inventory collector. Privileged helpers live in `resources/linux/` and are
+verified by `src/privileged/helpers.ts` before use. Migration 005 adds `perf_transactions`,
+`perf_transaction_items`, `perf_profiles`, `perf_test_sessions`, `perf_test_samples`; history is pruned by
+`perfHistoryDays`. Performance diagnostics read a `performance` context on `RuleContext`.
+

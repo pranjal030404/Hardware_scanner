@@ -9,11 +9,12 @@ import { ErrorBox, Spinner } from './ui'
 type ListKey = 'disabledCollectors' | 'diagDisabledRules' | 'metricsDisabledProviders' | 'hiddenPages'
 type Item = { id: string; label: string; hint?: string }
 
-const FEATURES: { key: 'liveMonitoring' | 'metricsEnabled' | 'processMonitoring' | 'diagNetworkDownEnabled'; label: string; hint: string }[] = [
+const FEATURES: { key: 'liveMonitoring' | 'metricsEnabled' | 'processMonitoring' | 'diagNetworkDownEnabled' | 'perfTuningEnabled'; label: string; hint: string }[] = [
   { key: 'liveMonitoring', label: 'Live hardware monitoring', hint: '— react to plug/unplug events and rescan periodically' },
   { key: 'metricsEnabled', label: 'Sample live metrics', hint: '— CPU, memory, network, disk I/O, battery, temperatures, fans' },
   { key: 'processMonitoring', label: 'Process monitoring', hint: '— top processes by CPU and memory (names only; off by default because process lists are personal data)' },
-  { key: 'diagNetworkDownEnabled', label: 'Report disconnected network interfaces', hint: '— off by default; a disconnected interface is often normal' }
+  { key: 'diagNetworkDownEnabled', label: 'Report disconnected network interfaces', hint: '— off by default; a disconnected interface is often normal' },
+  { key: 'perfTuningEnabled', label: 'Performance tuning controls', hint: '— off by default; lets the Performance tuning page change CPU/GPU settings (needs the optional helper). Monitoring works either way' }
 ]
 
 function Group({ title, note, items, disabled, onChange }: { title: string; note?: string; items: Item[]; disabled: readonly string[]; onChange: (next: string[], changed: string[], enabled: boolean) => Promise<void> }): JSX.Element {
@@ -40,14 +41,48 @@ function Group({ title, note, items, disabled, onChange }: { title: string; note
   )
 }
 
+const ROLE_ORDER = ['keyboard', 'mouse', 'touchpad', 'pointing stick', 'touchscreen', 'tablet', 'game controller']
+
+/** Individual devices: keyboards, pointers (via the compositor) and wireless radios (via rfkill). */
+export function DeviceSwitches(): JSX.Element {
+  const q = useLoad(() => api.deviceControls(), [], true)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  if (q.error) return <ErrorBox message={q.error} onRetry={q.reload} />
+  if (!q.data) return <Spinner />
+  const items = [...q.data.items].sort((a, b) => (a.kind === b.kind ? ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role) : a.kind === 'input' ? -1 : 1))
+  const toggle = async (id: string, enabled: boolean): Promise<void> => {
+    setBusy(id)
+    setError(null)
+    try { await api.setDeviceEnabled(id, enabled); q.reload() } catch (e) { setError((e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')) } finally { setBusy(null) }
+  }
+  const on = items.filter((i) => i.enabled).length
+  return (
+    <fieldset className="feature-group" aria-label="Devices">
+      <legend>Devices <small className="muted">{on} of {items.length} on</small></legend>
+      <p className="muted small">Switch individual devices on or off. Input devices are switched in the Hyprland session (no root needed; re-applied when the app starts or the device is re-plugged). The last keyboard and the last pointing device cannot be switched off.</p>
+      {error && <div className="banner banner-bad" role="alert">{error}</div>}
+      <div className="toggle-grid">
+        {items.map((i) => (
+          <label className="toggle" key={i.id} title={i.reason ?? i.method}>
+            <input type="checkbox" checked={i.enabled} disabled={!i.controllable || busy !== null} onChange={(e) => void toggle(i.id, e.target.checked)} />
+            <span>{i.kind === 'input' ? <>{i.role[0]!.toUpperCase() + i.role.slice(1)} <small className="muted">— {i.label}</small></> : <>{i.label} <small className="muted">— {i.role}</small></>}{i.reason && <small className="muted"> ({i.reason})</small>}</span>
+          </label>
+        ))}
+      </div>
+      {q.data.notes.map((n) => <p key={n} className="muted small">{n}</p>)}
+    </fieldset>
+  )
+}
+
 /** One place to switch every optional part of the app on or off. */
 export function FeatureControls({ settings, set }: { settings: Settings; set: <K extends keyof Settings>(k: K, v: Settings[K]) => Promise<void> }): JSX.Element {
-  const q = useLoad(() => Promise.all([api.collectorHealth(), api.diagnosticsStatus(), api.metricsStatus(), api.pointingStickStatus()]), [], false)
+  const q = useLoad(() => Promise.all([api.collectorHealth(), api.diagnosticsStatus(), api.metricsStatus()]), [], false)
   const [busy, setBusy] = useState(false)
 
   if (q.error) return <ErrorBox message={q.error} onRetry={q.reload} />
   if (!q.data) return <Spinner />
-  const [collectors, diag, metrics, stick] = q.data
+  const [collectors, diag, metrics] = q.data
 
   const update = (key: ListKey, after?: (changed: string[], enabled: boolean) => Promise<unknown>) =>
     async (next: string[], changed: string[], enabled: boolean): Promise<void> => {
@@ -76,16 +111,8 @@ export function FeatureControls({ settings, set }: { settings: Settings; set: <K
             <span>{f.label}<small className="muted"> {f.hint}</small></span>
           </label>
         ))}
-        <label className="toggle">
-          <input type="checkbox" checked={settings.pointingStickEnabled} disabled={!stick.supported} onChange={(e) => void set('pointingStickEnabled', e.target.checked)} />
-          <span>
-            Pointing stick
-            <small className="muted"> {stick.supported
-              ? `— the nub in the keyboard and its buttons (${stick.devices.map((d) => d.node).join(', ')}); applies to this desktop session and is re-applied when the app starts`
-              : `— unavailable: ${stick.reason}`}</small>
-          </span>
-        </label>
       </fieldset>
+      <DeviceSwitches />
       <Group
         title="Hardware collectors" items={collectorItems} disabled={settings.disabledCollectors}
         note="A disabled collector is skipped by every scan. Its devices are kept as last known and are never reported as removed."

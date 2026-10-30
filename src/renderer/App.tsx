@@ -11,6 +11,9 @@ import { CpuMemoryPage } from './pages/CpuMemory'
 import { SensorsPage } from './pages/Sensors'
 import { ProcessesPage } from './pages/Processes'
 import { ComparePage } from './pages/Compare'
+import { DeviceTestPage } from './pages/DeviceTest'
+import { CircuitPage } from './pages/Circuit'
+import { PerformancePage } from './pages/Performance'
 import { SnapshotsPage } from './pages/Snapshots'
 import { DiagnosticsPage } from './pages/Diagnostics'
 import { CollectorsPage } from './pages/Collectors'
@@ -33,6 +36,9 @@ export type Route =
   | { page: 'sensors' }
   | { page: 'processes' }
   | { page: 'compare' }
+  | { page: 'devtest' }
+  | { page: 'performance' }
+  | { page: 'circuit' }
   | { page: 'events' }
   | { page: 'collectors' }
   | { page: 'settings' }
@@ -82,7 +88,7 @@ function Shell(): JSX.Element {
         <ul>
           {nav.map((n, i) => (
             <li key={n.page}>
-              <button className={`nav-item ${active === n.page ? 'active' : ''}`} aria-current={active === n.page ? 'page' : undefined} onClick={() => navigate({ page: n.page } as Route)} title={`Alt+${i + 1}`}>
+              <button className={`nav-item ${active === n.page ? 'active' : ''}`} aria-current={active === n.page ? 'page' : undefined} onClick={() => navigate({ page: n.page } as Route)} title={`${n.label} (Alt+${i + 1})`}>
                 <n.icon size={16} aria-hidden /><span>{n.label}</span>{n.page === 'diagnostics' && activeFindings > 0 && <span className="nav-count" aria-label={`${activeFindings} active findings`}>{activeFindings}</span>}
               </button>
             </li>
@@ -102,6 +108,9 @@ function Shell(): JSX.Element {
         {route.page === 'sensors' && <SensorsPage navigate={navigate} />}
         {route.page === 'processes' && <ProcessesPage />}
         {route.page === 'compare' && <ComparePage navigate={navigate} />}
+        {route.page === 'devtest' && <DeviceTestPage />}
+        {route.page === 'performance' && <PerformancePage />}
+        {route.page === 'circuit' && <CircuitPage />}
         {route.page === 'events' && <EventsPage navigate={navigate} />}
         {route.page === 'collectors' && <CollectorsPage />}
         {route.page === 'settings' && <SettingsPage />}

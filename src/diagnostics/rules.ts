@@ -1,3 +1,4 @@
+import { PERFORMANCE_RULES } from './rules-performance'
 import type { CollectorHealth, EvidenceRef, Severity } from '@shared/schemas'
 import type { StoredDevice } from '@shared/stored'
 import { HARDWARE_RULES } from './rules-hardware'
@@ -416,7 +417,7 @@ const propertyChanged: DiagnosticRule = {
 }
 
 export const DIAGNOSTIC_RULES: DiagnosticRule[] = [
-  collectorHealth, inventoryStale, deviceOsError, storageSpace, storageSmart, sensorTemperature, networkLinkDown, deviceMissing, monitoringState, metricsAvailability, propertyChanged, ...HARDWARE_RULES
+  collectorHealth, inventoryStale, deviceOsError, storageSpace, storageSmart, sensorTemperature, networkLinkDown, deviceMissing, monitoringState, metricsAvailability, propertyChanged, ...HARDWARE_RULES, ...PERFORMANCE_RULES
 ]
 
 export type { CollectorHealth }

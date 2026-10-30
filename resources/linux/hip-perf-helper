@@ -1,0 +1,111 @@
+#!/bin/sh
+# Hardware Intelligence Platform - privileged performance helper.
+#
+# Installed root-owned at /usr/local/libexec/hardware-intelligence/hip-perf-helper by
+# resources/linux/install.sh and run only through its own polkit action
+# (dev.hardware-intelligence.perf.apply), so the system dialog names this one program. It accepts only the
+# whitelisted id=value pairs below, and checks every value against limits it reads from the kernel
+# itself, never from the caller. All arguments are validated before anything is written, so a bad
+# request changes nothing. Settings live in sysfs and reset on reboot.
+#
+# Usage: hip-perf-helper id=value [id=value ...]
+# HIP_ROOT is only for tests run unprivileged against a fixture tree; pkexec clears the environment.
+set -u
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+R="${HIP_ROOT:-}"
+CPU="$R/sys/devices/system/cpu"
+RAPL="$R/sys/class/powercap/intel-rapl:0"
+
+fail() { echo "ERROR $*" >&2; exit 2; }
+isint() { case "$1" in '' | *[!0-9]*) return 1 ;; esac; return 0; }
+rd() { cat "$1" 2>/dev/null; }
+inwords() { v="$1"; shift; for x in $*; do [ "$x" = "$v" ] && return 0; done; return 1; }
+range() { isint "$1" || fail "$2: not a whole number: $1"; [ "$1" -ge "$3" ] && [ "$1" -le "$4" ] || fail "$2: $1 is outside the allowed range $3..$4"; }
+put() {
+  [ "$MODE" = apply ] || return 0
+  printf '%s' "$2" >"$1" 2>/dev/null || fail "the kernel refused $2 for ${1#"$R"}"
+  echo "OK ${1#"$R"} = $2"
+}
+policies() { for p in "$CPU"/cpufreq/policy[0-9]*; do [ -d "$p" ] && echo "$p"; done; }
+card_ok() { case "$1" in card[0-9] | card[0-9][0-9]) [ -d "$R/sys/class/drm/$1/device" ] || fail "no such GPU: $1" ;; *) fail "bad GPU name: $1" ;; esac; }
+# amdgpu OD_RANGE line, e.g. "SCLK:     500Mhz       2800Mhz" -> "500 2800"
+od_range() { awk -v k="$2:" '$1 == k { gsub(/[A-Za-z]/, "", $2); gsub(/[A-Za-z]/, "", $3); print $2, $3 }' "$1"; }
+
+handle() {
+  id="$1"; val="$2"
+  case "$id" in
+    cpu.governor)
+      for p in $(policies); do inwords "$val" $(rd "$p/scaling_available_governors") || fail "governor $val not available"; put "$p/scaling_governor" "$val"; done ;;
+    cpu.epp)
+      for p in $(policies); do inwords "$val" $(rd "$p/energy_performance_available_preferences") || fail "energy preference $val not available"; put "$p/energy_performance_preference" "$val"; done ;;
+    cpu.max_khz | cpu.min_khz)
+      f=scaling_max_freq; [ "$id" = cpu.min_khz ] && f=scaling_min_freq
+      # "max"/"min" mean each policy's own hardware limit (hybrid CPUs have different limits per core type).
+      for p in $(policies); do
+        lo=$(rd "$p/cpuinfo_min_freq"); hi=$(rd "$p/cpuinfo_max_freq"); v="$val"
+        [ "$v" = max ] && v="$hi"; [ "$v" = min ] && v="$lo"
+        range "$v" "$id" "$lo" "$hi"; put "$p/$f" "$v"
+      done ;;
+    cpu.turbo)
+      range "$val" "$id" 0 1
+      if [ -f "$CPU/intel_pstate/no_turbo" ]; then put "$CPU/intel_pstate/no_turbo" "$((1 - val))"
+      elif [ -f "$CPU/cpufreq/boost" ]; then put "$CPU/cpufreq/boost" "$val"
+      else fail "this CPU driver has no turbo switch"; fi ;;
+    cpu.min_perf_pct | cpu.max_perf_pct)
+      f="$CPU/intel_pstate/${id#cpu.}"; [ -f "$f" ] || fail "$id not supported"; range "$val" "$id" 1 100; put "$f" "$val" ;;
+    cpu.dynamic_boost)
+      f="$CPU/intel_pstate/hwp_dynamic_boost"; [ -f "$f" ] || fail "$id not supported"; range "$val" "$id" 0 1; put "$f" "$val" ;;
+    rapl.pl1_uw | rapl.pl2_uw)
+      [ -d "$RAPL" ] || fail "no RAPL power limits on this CPU"
+      ref=$(rd "$RAPL/constraint_0_max_power_uw"); isint "${ref:-x}" && [ "$ref" -gt 0 ] || ref=$(rd "$RAPL/constraint_0_power_limit_uw")
+      isint "${ref:-x}" && [ "$ref" -gt 0 ] || fail "cannot determine the rated power limit"
+      # Hard ceilings: PL1 up to 2x and PL2 up to 3x the firmware's rated sustained power.
+      if [ "$id" = rapl.pl1_uw ]; then range "$val" "$id" 5000000 $((ref * 2)); put "$RAPL/constraint_0_power_limit_uw" "$val"
+      else range "$val" "$id" 5000000 $((ref * 3)); put "$RAPL/constraint_1_power_limit_uw" "$val"; fi ;;
+    igpu.*.min_mhz | igpu.*.max_mhz | igpu.*.boost_mhz)
+      card=$(echo "$id" | cut -d. -f2); card_ok "$card"; d="$R/sys/class/drm/$card"; k=$(echo "$id" | cut -d. -f3)
+      if [ -f "$d/gt_RP0_freq_mhz" ]; then
+        range "$val" "$id" "$(rd "$d/gt_RPn_freq_mhz")" "$(rd "$d/gt_RP0_freq_mhz")"; put "$d/gt_${k%_mhz}_freq_mhz" "$val"
+      elif [ -f "$d/device/tile0/gt0/freq0/rp0_freq" ]; then
+        # Intel xe driver: no separate boost clock.
+        x="$d/device/tile0/gt0/freq0"; [ "$k" = boost_mhz ] && fail "the xe driver has no boost clock"
+        range "$val" "$id" "$(rd "$x/rpn_freq")" "$(rd "$x/rp0_freq")"; put "$x/${k%_mhz}_freq" "$val"
+      else fail "$card has no Intel GPU frequency controls"; fi ;;
+    amdgpu.*.level)
+      card=$(echo "$id" | cut -d. -f2); card_ok "$card"; inwords "$val" auto low high manual || fail "bad level $val"
+      put "$R/sys/class/drm/$card/device/power_dpm_force_performance_level" "$val" ;;
+    amdgpu.*.sclk_mhz | amdgpu.*.mclk_mhz)
+      card=$(echo "$id" | cut -d. -f2); card_ok "$card"; od="$R/sys/class/drm/$card/device/pp_od_clk_voltage"
+      [ -f "$od" ] || fail "overdrive is not enabled (boot with amdgpu.ppfeaturemask=0xffffffff)"
+      k=SCLK; c=s; [ "${id##*.}" = mclk_mhz ] && { k=MCLK; c=m; }
+      set -- $(od_range "$od" "$k"); [ $# -eq 2 ] || fail "the driver does not report an $k range"
+      range "$val" "$id" "$1" "$2"; put "$od" "$c 1 $val"; put "$od" "c" ;;
+    amdgpu.*.od_reset)
+      card=$(echo "$id" | cut -d. -f2); card_ok "$card"; od="$R/sys/class/drm/$card/device/pp_od_clk_voltage"
+      [ -f "$od" ] || fail "overdrive is not enabled"; put "$od" "r"; put "$od" "c" ;;
+    amdgpu.*.power_cap_uw)
+      card=$(echo "$id" | cut -d. -f2); card_ok "$card"
+      for h in "$R/sys/class/drm/$card/device/hwmon"/hwmon*; do
+        [ -f "$h/power1_cap" ] || continue
+        range "$val" "$id" "$(rd "$h/power1_cap_min")" "$(rd "$h/power1_cap_max")"; put "$h/power1_cap" "$val"
+      done ;;
+    nvidia.power_w)
+      isint "$val" || fail "$id: not a whole number"
+      [ "$MODE" = apply ] && { nvidia-smi -pl "$val" || fail "nvidia-smi refused $val W"; echo "OK nvidia power limit = $val W"; } ;;
+    tuned.profile)
+      case "$val" in '' | *[!a-z0-9-]*) fail "bad profile name" ;; esac
+      tuned-adm list 2>/dev/null | grep -q "^- $val " || fail "tuned profile $val does not exist"
+      [ "$MODE" = apply ] && { tuned-adm profile "$val" || fail "tuned-adm refused $val"; echo "OK tuned profile = $val"; } ;;
+    *) fail "unknown setting: $id" ;;
+  esac
+  return 0
+}
+
+[ $# -gt 0 ] || fail "nothing to do"
+[ $# -le 32 ] || fail "too many settings"
+for MODE in check apply; do
+  for a in "$@"; do
+    case "$a" in *=*) ;; *) fail "expected id=value, got: $a" ;; esac
+    handle "${a%%=*}" "${a#*=}"
+  done
+done

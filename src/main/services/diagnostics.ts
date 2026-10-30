@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { DIAGNOSTIC_RULES } from '../../diagnostics/rules'
-import type { DiagnosticRule, MetricWindow, RuleContext, RuleFinding, RuleResult } from '../../diagnostics/types'
+import type { DiagnosticRule, MetricWindow, PerfDiagnosticsContext, RuleContext, RuleFinding, RuleResult } from '../../diagnostics/types'
 import {
   FindingSchema, SEVERITIES, type DiagnosticsStatus, type Finding, type FindingDetail, type HipEvent, type MonitorStatus, type RuleInfo, type Settings
 } from '@shared/schemas'
@@ -21,6 +21,7 @@ export interface DiagnosticsDeps {
   getCollectors: () => CollectorHealth[]
   getMetrics?: () => MetricsStatus | null
   getMetricWindow?: (metric: string, windowMs: number) => MetricWindow[]
+  getPerformance?: () => PerfDiagnosticsContext | null
   rules?: DiagnosticRule[]
   clock?: () => Date
 }
@@ -110,6 +111,7 @@ export class DiagnosticsService {
       lastInventoryScanAt: this.d.inventory.lastScanAt(),
       metrics: this.d.getMetrics?.() ?? null,
       ...(this.d.getMetricWindow ? { metricWindow: this.d.getMetricWindow } : {}),
+      performance: this.d.getPerformance?.() ?? null,
       recentEvents: this.d.events.recent(500),
       freshMs: Math.max(poll * 3, 120_000),
       staleMs: Math.max(poll * 5, 300_000)

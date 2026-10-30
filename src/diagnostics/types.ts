@@ -1,5 +1,16 @@
 import type { CollectorHealth, EvidenceRef, FindingCategory, HipEvent, MetricsStatus, MonitorStatus, Settings, Severity } from '@shared/schemas'
 import type { StoredDevice } from '@shared/stored'
+import type { TestSession, TxRecord } from '../performance/types'
+
+/** Performance-tuning state the performance rules read; absent when the feature is not available. */
+export interface PerfDiagnosticsContext {
+  tuningEnabled: boolean
+  helperUsable: boolean
+  helperReason: string | null
+  lastTx: TxRecord | null
+  failedRollbacks: TxRecord[]
+  lastTest: TestSession | null
+}
 
 /** Recent samples of one metric on one device, oldest first. */
 export interface MetricWindow {
@@ -30,6 +41,7 @@ export interface RuleContext {
   freshMs: number
   /** After this long without any scan the whole inventory counts as stale. */
   staleMs: number
+  performance?: PerfDiagnosticsContext | null
 }
 
 export interface RuleFinding {

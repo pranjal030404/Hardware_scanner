@@ -13,6 +13,11 @@ files:
   - "!**/*.map"
   - "!node_modules/zod/src/**"
 asar: true
+# The optional privileged helpers and their installer ship next to the app (outside the asar) so a
+# user can review and install them: sudo sh <resources>/linux/install.sh. The app never installs them.
+extraResources:
+  - from: resources/linux
+    to: linux
 artifactName: ${name}-${version}-${os}-${arch}.${ext}
 electronLanguages: [en-US]
 # Hardening applied to the packaged Electron binary (flipped at package time).

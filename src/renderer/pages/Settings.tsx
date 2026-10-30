@@ -83,6 +83,15 @@ export function SettingsPage(): JSX.Element {
         </section>
 
         <section className="card">
+          <h2>Performance tuning</h2>
+          {toggle('perfConfirmChanges', 'Review every tuning change before applying', '— high-risk changes always need a review')}
+          <NumberField label="Longest performance test (seconds)" value={settings.perfTestMaxSec} min={30} max={3600} onCommit={(n) => set('perfTestMaxSec', n)} />
+          <NumberField label="Shortest test sampling interval (ms)" value={settings.perfTestMinIntervalMs} min={250} max={10000} onCommit={(n) => set('perfTestMinIntervalMs', n)} />
+          <NumberField label="Keep tuning and test history for (days)" value={settings.perfHistoryDays} min={1} max={3650} onCommit={(n) => set('perfHistoryDays', n)} />
+          <p className="muted small">Tuning controls themselves are switched on under Features & controls. Settings are never re-applied at start-up; nothing here is persisted across reboots except a tuned profile.</p>
+        </section>
+
+        <section className="card">
           <h2>Retention</h2>
           <NumberField label="Keep events for (days)" value={settings.eventRetentionDays} min={1} max={3650} onCommit={(n) => set('eventRetentionDays', n)} />
           <NumberField label="Maximum stored events" value={settings.maxEvents} min={100} max={1000000} onCommit={(n) => set('maxEvents', n)} />

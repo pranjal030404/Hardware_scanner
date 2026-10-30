@@ -253,8 +253,17 @@ export const SettingsSchema = z.object({
   metricsDisabledProviders: z.array(z.string().max(64)).max(64).default([]),
   /** Sidebar pages hidden in Settings (Overview and Settings cannot be hidden). */
   hiddenPages: z.array(z.string().max(32)).max(32).default([]),
-  /** Laptop pointing stick (TrackPoint-style nub); switched through the desktop compositor. */
-  pointingStickEnabled: z.boolean().default(true)
+  /** Input devices switched off in Settings (group ids from the device-control module). */
+  disabledInputs: z.array(z.string().max(200)).max(64).default([]),
+  /** Performance tuning: writable controls are off by default; monitoring works either way. */
+  perfTuningEnabled: z.boolean().default(false),
+  /** Show a review step before every change (high-risk changes always need one). */
+  perfConfirmChanges: z.boolean().default(true),
+  /** Longest allowed test session and shortest sampling interval. */
+  perfTestMaxSec: z.number().int().min(30).max(3600).default(300),
+  perfTestMinIntervalMs: z.number().int().min(250).max(10_000).default(500),
+  /** How long tuning and test history is kept. */
+  perfHistoryDays: z.number().int().min(1).max(3650).default(90)
 })
 export type Settings = z.infer<typeof SettingsSchema>
 export const SETTING_KEYS = Object.keys(SettingsSchema.shape) as (keyof Settings)[]
@@ -361,13 +370,13 @@ export const FINDING_STATUSES = ['active', 'acknowledged', 'resolved', 'dismisse
 export const FindingStatusSchema = z.enum(FINDING_STATUSES)
 export type FindingStatus = z.infer<typeof FindingStatusSchema>
 
-export const FINDING_CATEGORIES = ['collector', 'inventory', 'device', 'storage', 'thermal', 'network', 'monitoring', 'power'] as const
+export const FINDING_CATEGORIES = ['collector', 'inventory', 'device', 'storage', 'thermal', 'network', 'monitoring', 'power', 'performance'] as const
 export const FindingCategorySchema = z.enum(FINDING_CATEGORIES)
 export type FindingCategory = z.infer<typeof FindingCategorySchema>
 
 /** A pointer to an actual stored observation that supports a finding, with the value seen. */
 export const EvidenceRefSchema = z.object({
-  type: z.enum(['device_field', 'device_property', 'collector_run', 'device_event', 'metric_sample', 'setting', 'monitor_state']),
+  type: z.enum(['device_field', 'device_property', 'collector_run', 'device_event', 'metric_sample', 'setting', 'monitor_state', 'tuning_transaction', 'test_session']),
   /** Device id, collector id, rule setting name... depending on `type`. */
   ref: z.string().min(1),
   key: z.string().optional(),

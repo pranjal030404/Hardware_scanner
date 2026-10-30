@@ -5,7 +5,12 @@
 import type { MetricSeriesData, MetricsStatus, SnapshotComparison, SnapshotMeta, DiagnosticsStatus, Finding, FindingDetail, FindingStatus, Severity, FindingCategory, AppInfo, CollectorHealth, DeviceDetail, DeviceSummary, HipEvent, MonitorStatus, Overview, ScanSummary, Settings, Category, DeviceStatus } from './schemas'
 
 import type { ProcessSnapshot } from '../processes'
-import type { PointingStickStatus } from '../input-control/pointing-stick'
+import type { DeepProgress, DeviceControlItem, LiveState, TargetList, TestReport } from '../device-test/types'
+import type { PerfApplyResult, PerfLive, PerfState, TestMode, TestProgress, TestSample, TestSession, TxRecord } from '../performance/types'
+
+import type { CircuitSummary, Design, SavedCircuit } from '../circuit/types'
+
+export interface DeviceControls { items: DeviceControlItem[]; notes: string[] }
 
 export const EVENT_CHANNEL = 'hip:event'
 
@@ -50,7 +55,33 @@ export interface IpcResponses {
   'collectors:health': CollectorHealth[]
   'metrics:status': MetricsStatus
   'processes:top': ProcessSnapshot
-  'input:pointingStick': PointingStickStatus
+  'devices:controls': DeviceControls
+  'devices:setEnabled': DeviceControls
+  'perf:state': PerfState
+  'perf:live': PerfLive
+  'perf:applyProfile': PerfApplyResult
+  'perf:applyCustom': PerfApplyResult
+  'perf:restore': PerfApplyResult
+  'perf:history': TxRecord[]
+  'perf:saveProfile': PerfState
+  'perf:deleteProfile': PerfState
+  'perf:testStart': TestProgress
+  'perf:testPoll': TestProgress | null
+  'perf:testCancel': TestProgress | null
+  'perf:tests': TestSession[]
+  'perf:test': { session: TestSession; samples: TestSample[] } | null
+  'circuit:list': CircuitSummary[]
+  'circuit:save': CircuitSummary
+  'circuit:load': SavedCircuit | null
+  'circuit:delete': CircuitSummary[]
+  'devtest:targets': TargetList
+  'devtest:check': TestReport
+  'devtest:deepStart': DeepProgress
+  'devtest:deepPoll': DeepProgress
+  'devtest:liveStart': LiveState
+  'devtest:livePoll': LiveState
+  'devtest:liveStill': LiveState
+  'devtest:liveStop': null
   'metrics:query': MetricSeriesData[]
   'metrics:setPaused': MetricsStatus
   'snapshots:list': SnapshotMeta[]
@@ -84,7 +115,33 @@ export interface HipApi {
   collectorHealth(): Promise<CollectorHealth[]>
   metricsStatus(): Promise<MetricsStatus>
   topProcesses(limit?: number): Promise<ProcessSnapshot>
-  pointingStickStatus(): Promise<PointingStickStatus>
+  deviceControls(): Promise<DeviceControls>
+  setDeviceEnabled(id: string, enabled: boolean): Promise<DeviceControls>
+  performanceState(): Promise<PerfState>
+  performanceLive(): Promise<PerfLive>
+  applyPerformanceProfile(id: string): Promise<PerfApplyResult>
+  applyPerformanceValues(label: string, values: { id: string; value: string }[]): Promise<PerfApplyResult>
+  restorePerformance(target: 'stock' | 'undo' | 'original'): Promise<PerfApplyResult>
+  performanceHistory(limit?: number): Promise<TxRecord[]>
+  savePerformanceProfile(name: string): Promise<PerfState>
+  deletePerformanceProfile(id: number): Promise<PerfState>
+  startPerformanceTest(mode: TestMode, seconds: number, intervalMs: number): Promise<TestProgress>
+  pollPerformanceTest(): Promise<TestProgress | null>
+  cancelPerformanceTest(): Promise<TestProgress | null>
+  performanceTests(limit?: number): Promise<TestSession[]>
+  performanceTest(id: number): Promise<{ session: TestSession; samples: TestSample[] } | null>
+  listCircuits(): Promise<CircuitSummary[]>
+  saveCircuit(name: string, design: Design, id?: number): Promise<CircuitSummary>
+  loadCircuit(id: number): Promise<SavedCircuit | null>
+  deleteCircuit(id: number): Promise<CircuitSummary[]>
+  testTargets(): Promise<TargetList>
+  runDeviceTest(targetId: string): Promise<TestReport>
+  startDeepTest(targetId: string, node: string, seconds: number): Promise<DeepProgress>
+  pollDeepTest(sessionId: string): Promise<DeepProgress>
+  startLiveTest(targetId: string): Promise<LiveState>
+  pollLiveTest(sessionId: string): Promise<LiveState>
+  startStillTest(sessionId: string, durationMs: number): Promise<LiveState>
+  stopLiveTest(): Promise<null>
   queryMetrics(series: { metric: string; deviceId: string }[], windowSec: number, maxPoints?: number): Promise<MetricSeriesData[]>
   setMetricsPaused(paused: boolean): Promise<MetricsStatus>
   listSnapshots(): Promise<SnapshotMeta[]>

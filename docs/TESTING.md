@@ -25,6 +25,20 @@ npm run test:e2e      # builds, launches the real Electron app, drives it over C
 | `tests/topology.test.ts` | Layout, confirmed-only filter, collapse, cycles, 5,000-node performance |
 | `tests/e2e/run.mjs` | Real app (69 checks): diagnostics page (real findings, ack/reopen, filters, empty state, rule health, invalid IPC), snapshots (create/compare/confirm-delete/persist), monitor (live CPU/memory/network/disk/battery/thermal cards, **memory agrees with /proc/meminfo read independently**, pause/resume freezes sampling, per-device metrics), plus the earlier checks: startup, first scan with real hardware, renderer isolation, rejected IPC, CSP/network & navigation blocking, search/filter/details, topology, collectors, pause/resume, settings persistence across restart, clean shutdown, DB available immediately after restart |
 
+## Performance tuning and device tests
+
+- `tests/performance.test.ts` — the privileged helper script is executed **unprivileged** with `HIP_ROOT`
+  pointing at a generated sysfs tree; the fake `pkexec` runs the same script, so apply → read-back →
+  mismatch → partial failure → rollback are exercised end to end without touching the host.
+- `tests/hid-deep.test.ts`, `tests/device-test.test.ts` — HID descriptor decoding, deep-test sessions, device
+  switches, kernel-log interpretation (all mocked).
+- **Opt-in hardware tests:** `HIP_HW_TESTS=1 npx vitest run tests/hw-performance.test.ts` — read-only discovery
+  and telemetry on the real machine. Skipped by default and never run in CI. No test changes clocks, voltage,
+  power limits, fans or firmware.
+
+## Circuit lab
+`tests/circuit.test.ts`: the example player has zero issues and every part works; rail voltages, divider/ADC and runtime; each fault class (swapped wires, short, 5 V on a 3.3 V part, missing GND/SCK, boot straps, input-only pins) is reported; the firmware pin map can fix a mismatch; editing rules; repo and IPC schema. e2e drives the page (encoder → OLED volume, switch → no signal) and the save/load/reject/delete channels.
+
 ## Packaged-build tests (Phase D)
 
 ```bash

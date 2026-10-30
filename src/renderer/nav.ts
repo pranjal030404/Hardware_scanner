@@ -1,4 +1,4 @@
-import { Activity, Cpu, Gauge, GitCompare, History, LayoutDashboard, ListTree, Settings as SettingsIcon, Share2, ShieldAlert, ShieldCheck, Thermometer } from 'lucide-react'
+import { Activity, CircuitBoard, Cpu, Gauge, GitCompare, History, LayoutDashboard, ListTree, Settings as SettingsIcon, Share2, ShieldAlert, ShieldCheck, Stethoscope, Thermometer, Zap } from 'lucide-react'
 import type { Route } from './App'
 
 export const NAV: { page: Route['page']; label: string; icon: typeof Cpu }[] = [
@@ -12,6 +12,9 @@ export const NAV: { page: Route['page']; label: string; icon: typeof Cpu }[] = [
   { page: 'sensors', label: 'Sensors', icon: Thermometer },
   { page: 'processes', label: 'Processes', icon: ListTree },
   { page: 'compare', label: 'Device diff', icon: GitCompare },
+  { page: 'devtest', label: 'Device test', icon: Stethoscope },
+  { page: 'performance', label: 'Performance tuning', icon: Zap },
+  { page: 'circuit', label: 'Circuit lab', icon: CircuitBoard },
   { page: 'events', label: 'Events', icon: Activity },
   { page: 'collectors', label: 'Collectors', icon: ShieldCheck },
   { page: 'settings', label: 'Settings', icon: SettingsIcon }

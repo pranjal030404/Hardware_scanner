@@ -25,11 +25,37 @@ The app is privileged by nature (it reads hardware state), so the renderer is tr
 
 - Read-only by default; runs as the normal user. Root-only data is reported as a limitation, not escalated.
 - Process execution uses `spawn(file, args, {shell:false})` with timeouts, output caps and kill-on-timeout.
-  Only fixed tools are invoked (`udevadm`, `smartctl`, `bluetoothctl`, `powershell.exe`, `hyprctl`); no collector
-  output is ever executed or interpolated into a command.
-- The one state-changing action is the opt-in pointing-stick switch (Settings → Features & controls). It
-  calls `hyprctl keyword device[<name>]:enabled <bool>` for devices udev tags `ID_INPUT_POINTINGSTICK`,
-  only when Hyprland lists that exact name. It needs no root and the compositor resets it on logout.
+  Only fixed tools are invoked (`udevadm`, `smartctl`, `bluetoothctl`, `powershell.exe`, `hyprctl`, `rfkill`,
+  `journalctl`, `tuned-adm` (read-only queries), `nvidia-smi` (queries), `pkexec` with the two installed
+  helpers); no collector output is ever executed or interpolated into a command.
+- State-changing actions are limited to the per-device switches (Settings → Features & controls → Devices):
+  `hyprctl keyword device[<name>]:enabled <bool>` for input devices (only names Hyprland itself lists) and
+  `rfkill block|unblock <index>` for radios. No root; the last keyboard and last pointer cannot be switched
+  off. Nothing writes to sysfs.
+- **Privileged helpers (optional, Linux).** The app never runs as root, never uses `sudo` and never asks
+  for a password itself. Two fixed programs can be installed by the user (`sudo sh resources/linux/install.sh`)
+  to `/usr/local/libexec/hardware-intelligence/`, each with its own polkit action
+  (`dev.hardware-intelligence.perf.apply`, `dev.hardware-intelligence.hid.probe`, `auth_admin_keep`). The
+  app runs them only as `pkexec <fixed path> <validated tokens>` — no shell, no interpreter flags, no script
+  text on the command line — and only after checking the installed file is a regular, root-owned, not
+  group/world-writable executable in a root-only directory, byte-identical to the shipped copy, with its
+  polkit policy present. Missing or modified helpers leave every control read-only.
+  - `hip-perf-helper` accepts only whitelisted `id=value` settings (CPU governor/energy preference/turbo/
+    frequency range/perf %, RAPL PL1/PL2, Intel GPU min/max/boost (i915 and xe), amdgpu level/OverDrive/power
+    cap, nvidia-smi power limit, tuned profile). It re-reads every limit from the kernel itself (e.g. GPU ≤ RP0,
+    AMD clocks within OD_RANGE, PL1 ≤ 2× and PL2 ≤ 3× the firmware rating), validates **all** arguments before
+    writing any, and refuses anything else. Values are also validated by the IPC schema (plain tokens only)
+    and against the discovered control in the main process.
+  - Every change is a recorded transaction: previous values, requested values, kernel read-back, and an
+    automatic, verified rollback of anything that changed if the helper fails part-way. Operations are
+    serialised (one change or test at a time). Nothing is re-applied at start-up.
+  - `hip-hid-probe` opens only the named `/dev/hidrawN`, which the app first checks belongs to the selected
+    device, captures raw reports for 3–20 s and, for Logitech HID++ devices, sends read-only queries. It
+    never sends a setting-changing request. Decoding happens unprivileged in the app.
+  - Remove with `sudo sh resources/linux/install.sh --uninstall`. Details: docs/PERFORMANCE.md.
+- Device test reads `journalctl -k` (kernel messages) and, only during an explicit hands-on session on the
+  selected device, that device's `/dev/input/event*` nodes (non-blocking, never grabbed). Sessions stop after
+  2 minutes or when the page closes; only counts and key names reach the page, nothing is stored.
 - No USB writes, no serial commands, no firmware/driver actions.
 
 ## Data handling

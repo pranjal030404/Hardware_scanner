@@ -142,13 +142,54 @@ UI: dark / light / system theme, sidebar navigation with active-findings badge, 
 features (live monitoring, metric sampling, process monitoring, network-down reports) · each hardware collector
 (skipped by scans; its devices are kept as last known, never reported removed; re-enabling rescans it) ·
 each diagnostic rule · each metric provider · each sidebar page (Overview and Settings always shown) ·
-**pointing stick** on/off (Hyprland sessions; switched via `hyprctl`, no root; re-applied at app start).
+**individual devices** — keyboards, mice, touchpad, pointing stick (Hyprland, via `hyprctl`) and Wi-Fi/Bluetooth
+radios (`rfkill`); no root; re-applied at app start and on re-plug; the last keyboard/pointer cannot be switched off.
+
+## 9b. Device test ✅ (Linux)
+Plug a device in (it is selected automatically) or pick any USB device, built-in keyboard/pointer, camera,
+network adapter, Bluetooth adapter, drive or battery, and get a verdict with plain-language causes and fixes:
+- **Automatic checks** — detected on the bus, configured, USB authorization, driver per interface, link speed vs
+  capability, power budget / over-current, connection path (hub), input devices created, switched off in Settings,
+  radio blocked, link/carrier, packet errors, drive I/O errors, battery wear — each with evidence.
+- **Kernel log interpretation** — enumeration errors (-71/-110/-32), "not accepting address", over-current,
+  reset and disconnect loops, HID probe failures, firmware load failures, disk I/O errors. Errors from earlier
+  attempts are separated from the current connection.
+- **Failed connections** — devices that never enumerated (and so never reached the inventory) are shown from
+  the kernel log with the reason.
+- **Hands-on test** for mice, keyboards, touchpads and pointing sticks, read from the raw input events: every
+  direction, button, wheel and multi-finger touch is ticked off; detects a button that double-clicks by itself
+  (switch bounce), stuck keys/buttons, pointer drift (hold-still test), dropped events, movement stutter and the
+  report rate; for keyboards, lists the keys not pressed yet; explains "detected but sends nothing" and
+  "buttons work but it does not move" (sensor/surface/battery).
+- **Deep hardware test** (administrator password): reads the raw reports the device itself transmits
+  (/dev/hidraw), decodes them with the device's own HID report descriptor, and proves whether movement and
+  clicks leave the device — separating a device fault (e.g. "sending zero movement" = sensor) from a
+  PC/driver/desktop fault. Logitech HID++ devices are also asked for battery voltage, firmware and DPI.
+- **Wireless battery** reported by the device through its receiver (e.g. Logitech HID++), incl. "asleep / out of range".
+- **Connection map** — the selected device only: its chain from the PCI root (controller → root hub → port)
+  down to every interface, HID device, input node and battery it contains, with details for each step.
 
 Theme · safety-rescan interval · live monitoring on/off · event retention (days, max count) ·
 metric sampling on/off, interval, retention · process monitoring opt-in ·
 diagnostics thresholds (disk warn/critical %, temperature margin and fallback, PSI pressure % and window,
 swap-in rate, throttle window, missing-device window, network-down opt-in, disabled rules) ·
 export privacy toggles (serials, MACs, hostname, IPs). All settings are validated and persisted.
+
+## 9c. Performance tuning ✅ read-only on Linux · ❓ changes (fixture-tested) · 👁 Windows monitoring only
+See docs/PERFORMANCE.md. Overview (live measurements with source and time, capabilities per control, current
+profile, last change) · CPU and GPU tabs (device-reported limits; controls with range, source, status and
+persistence; OS policy limits clearly distinguished from hardware limits and observed clocks; unsupported
+controls explained) · Profiles (Stock from documented defaults, Quiet, Balanced, Performance, saved profiles
+bound to a hardware fingerprint; review before applying) · Transactions with kernel read-back verification
+and automatic rollback on partial failure · Undo / restore original / restore stock · Testing (built-in
+SHA-256 benchmark or monitoring-only sessions, history, before/after; not a stability proof) · History ·
+5 diagnostics rules. Changes need the optional, separately installed privileged helper; off by default.
+
+## 9d. Circuit lab ✅ (DC model; no firmware execution)
+Virtual breadboard for ESP32 projects: drag parts, wire pins, test before building. Live OLED, encoder, power switch,
+battery slider and SD card; rail voltages, battery draw/runtime and ADC reading from a nodal-analysis DC model; checks for
+shorts, missing power/ground, over-voltage, 5 V on GPIOs, input-only/strapping pins, and wiring that does not match the
+(editable) firmware pin map. Designs save to the database and import/export as JSON.
 
 ## 10. Data, export & backup ✅
 - Local SQLite database (`node:sqlite`) with versioned migrations (schema v4) and automatic

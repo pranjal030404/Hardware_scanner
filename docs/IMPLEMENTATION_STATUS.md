@@ -122,6 +122,35 @@ Baseline re-run 2026-10-21: typecheck clean, 293 unit tests, build OK, 70/70 e2e
 | Snapshots and comparison | ✅ see Phase B |
 | Live readings | ✅ sampled over time (Phase C); the detail-page "Live readings" table still shows values as of the last inventory scan |
 
+## Performance tuning (2026-10-27) — see docs/PERFORMANCE.md
+| Item | Status | Evidence |
+|---|---|---|
+| Capability discovery (CPU policy, RAPL, Intel GPU i915/xe, AMD, NVIDIA, tuned), per-control status with write evidence | ✅ Linux read-only (i915/intel_pstate on the dev laptop); ❓ xe/AMD/NVIDIA fixtures only | `tests/performance.test.ts`; `HIP_HW_TESTS=1 tests/hw-performance.test.ts` on the dev laptop |
+| Telemetry with source/time; unavailable readings explained, never estimated | ✅ | hw test + e2e |
+| Optional privileged helpers + polkit policy + install/uninstall script; helper verification (owner/mode/contents/policy) | ❓ helper logic tested unprivileged against fixtures; **never installed or run as root on real hardware** | unit tests |
+| Transactions: validate, record, apply, read back, verify, roll back on partial failure, serialisation, undo/original/stock | ❓ end-to-end against fixture trees with the real helper script | unit tests |
+| Profiles (Stock/Quiet/Balanced/Performance + saved, fingerprint-bound) | ❓ plans verified on real data (read-only); applying only in fixtures | unit + e2e |
+| Test sessions (SHA-256 benchmark / monitoring), history, before/after | ✅ workload on real CPU; ❓ session flow mocked | unit |
+| Diagnostics: 5 `performance.*` rules | ✅ unit | |
+| Windows monitoring-only adapter | ❓ mocked | |
+| Migration 005, retention, crash recovery of running transactions/tests | ✅ unit | |
+| Persistent (boot-time) profiles | ⬜ intentionally not implemented | |
+
+## Circuit lab (2026-10-29)
+- **What:** a virtual breadboard. Drag parts (ESP32, OLED, rotary encoder, PCM5102A DAC, microSD, Li-ion cell, charger/boost, switch, resistor), wire pins, and test the design before building it. The built-in example is the handheld player from the reference diagram.
+- **Simulation (`src/circuit/`, pure and unit-tested):** nets by union-find; DC operating point by nodal analysis (Norton sources, resistive loads, module pull-ups); the boost converter, the ESP32 VIN→3V3 regulator, brown-out and over-current protection are solved by iterating on their on/off state. Battery sense reads the VBAT/2 divider through the ADC.
+- **Checks:** shorts between rails, unwired power/ground, over/under-voltage per part, 5 V on non-tolerant GPIOs, input-only pins driving outputs, firmware pin conflicts, GPIO12/GPIO0 boot straps, DAC SCK not grounded, wiring that does not match the firmware pin map (which is editable).
+- **Behaviour:** OLED shows clock/volume/battery/status only when it is powered and wired to the pins the firmware uses; the encoder only reaches the firmware when it is working.
+- **Persistence:** migration 006 `circuit_designs`, `circuit-repo.ts`, IPC `circuit:list|save|load|delete` (design validated by `src/circuit/schema.ts`, max 60 parts / 300 wires / 100 saved), JSON import/export in the page.
+- **Not modelled:** it does not execute firmware code, AC/transient behaviour, USB charging, or timing. One of each module kind per design. Results are a DC model, not a substitute for a bench check. No real hardware is involved.
+- **Solver notes:** loads are stamped unconditionally and a part counts as powered if its supply is in range *under its own load*; ground nets are tied to the ideal reference through 1 kΩ, so a supply with no wired return starves its loads rather than powering them. The regulator and boost thresholds have hysteresis. `Electrical.converged` is asserted across single-wire/part removal and a battery-voltage × switch sweep.
+- **Boards (2026-10-29):** every design has a carrier board (`Design.board`, validated by `schema.ts`): blank PCB, full/half breadboard, perfboard, stripboard, Uno/Nano/ESP32/Pico outlines, or a custom size in 2.54 mm holes. `src/circuit/board.ts` defines the geometry: canvas size, hole grid, breadboard tie rows/power rails/channel, strip rows and corner mounting holes. A board is a carrier only — it adds no pins and no connections, so switching a design between boards never changes simulation results. Boards with real holes snap placement to the 2.54 mm grid; outlines keep the finer grid. The canvas auto-fits to the board as well as the parts.
+- **UI:** canvas auto-fits to the board and parts (Fit view), parts palette is a strip above the canvas, wires are spread into lanes, legend for rail colours and part state, works in light/dark and at ~980 px.
+- **Several PCBs (2026-10-29):** the page keeps one tab per PCB project (max 12; unsaved dot, two-step close, tabs survive leaving the page but not the app). `New PCB…` opens blank or one of five built-in examples (player, LED, transistor driver, regulated I²C sensor board, breadboard light detector) in a new tab; saved circuits open in their own tab (or focus it if already open).
+- **New parts:** capacitor (DC open), inductor (DC short), diode, LED (5 colours, glow, over-current fault), RGB LED (three independently wired channels sharing a common cathode), fuse (0.02 Ω when intact, "would blow" error over rating, `blown` opens it), LDR (1 MΩ at 0 lx, falling with light), thermistor (β-equation around 25 °C), DC motor/fan (resistive load with running/stopped state), 2×4 header (eight independent pins), potentiometer, push button (hold), NPN/PNP (saturated-switch model with a "base current too low" warning), N/P-MOSFET (threshold + Rds(on)), op-amp (VCCS with rail clamping: buffer and comparator work), LDO/buck regulator (dropout, efficiency, overload), I²C sensor (shares GPIO21/22 with the OLED), buzzer, 5 V relay, servo, USB 5 V source. Solver notes: transistors are switch-saturation models, not full Ebers–Moll; op-amp is single-supply with fixed 0.1 V / 0.15 V rail margins; no AC, so capacitors/inductors are DC-only.
+- **Custom part builder:** name + pin list (`NAME:type[:L|R]`, types power/gnd/signal/passive) + supply range and load. Stored inside the design (`customs`, max 10 per PCB, validated by `schema.ts`); it behaves as a powered load with pin-level voltage checks, not as a behavioural model.
+- Tests: `tests/circuit.test.ts` (66), 22 e2e checks (the editor is driven through real pointer events: tabs, add part, wire two pins, delete, drag, hold a button, switch boards, build a custom part). Board and part additions are covered by unit tests: every board resolves to a sane rectangle, the same design simulates identically on every board, `fitBox` always contains the board, malformed boards are rejected by the schema, and each new part converges.
+
 ## Phase 5 — integrations & support
 | Item | Status |
 |---|---|

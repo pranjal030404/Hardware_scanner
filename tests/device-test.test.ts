@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { SysReader } from '@collectors/core/sysreader'
 import type { CommandRunner, RunResult } from '@collectors/core/runner'
 import { DeviceControl, groupInputs, roleFromUdev, type InputNode } from '../src/device-control'
+import { windowsDevices, windowsInputRole } from '../src/device-control/windows'
 import { DeviceTester } from '../src/device-test/engine'
 import { PathBuilder } from '../src/device-test/path'
 import { EVENT_SIZE, hasBit, InputAggregator, parseBitmap, parseEvents, type InputEvent } from '../src/device-test/evdev'
@@ -88,6 +89,94 @@ describe('DeviceControl', () => {
     const r = rig(['input:mouse:mouse'])
     await r.ctl.reapply()
     expect(r.calls.filter((c) => c[1] === 'keyword')).toEqual([['hyprctl', 'keyword', 'device[mouse]:enabled', 'false']])
+  })
+})
+
+describe('Windows device switches', () => {
+  const inputs = [
+    { Class: 'Keyboard', Name: 'HID Keyboard Device', Id: 'HID\\KBD\\1', Status: 'OK', Problem: 'CM_PROB_NONE', Present: true },
+    { Class: 'Keyboard', Name: 'Second Keyboard', Id: 'HID\\KBD\\2', Status: 'OK', Problem: 'CM_PROB_NONE', Present: true },
+    { Class: 'Mouse', Name: 'HID-compliant mouse', Id: 'HID\\MOUSE\\1', Status: 'OK', Problem: 'CM_PROB_NONE', Present: true },
+    { Class: 'Mouse', Name: 'HID-compliant touch pad', Id: 'HID\\PAD\\1', Status: 'Error', Problem: 'CM_PROB_DISABLED', Present: true },
+    { Class: 'HIDClass', Name: 'Consumer Control', Id: 'HID\\OTHER\\1', Status: 'OK', Problem: 'CM_PROB_NONE', Present: true }
+  ]
+
+  function rig(opts: { admin?: boolean; disabled?: string[] } = {}) {
+    const calls: string[][] = []
+    const run: CommandRunner = async (file, args) => {
+      calls.push([file, ...args])
+      const script = args.join(' ')
+      if (script.includes('Keyboard,Mouse,HIDClass')) return ok(JSON.stringify(inputs))
+      if (script.includes('Get-NetAdapter')) return ok(JSON.stringify({
+        net: [{ Name: 'Wi-Fi', Description: 'Intel(R) Wi-Fi 6 AX201 160MHz', Status: 'Up' }],
+        bt: [{ Name: 'Intel(R) Wireless Bluetooth(R)', Id: 'USB\\BT\\1', Status: 'OK', Problem: 'CM_PROB_NONE', Present: true }]
+      }))
+      if (script.includes('IsInRole')) return ok(opts.admin === false ? 'False' : 'True')
+      return ok('')
+    }
+    let off = opts.disabled ?? []
+    const ctl = new DeviceControl({ reader: new SysReader(tmpRoot()), run, env: {}, platform: 'win32', disabledInputs: () => off })
+    return { ctl, run, calls, setOff: (x: string[]) => (off = x) }
+  }
+
+  it('maps PnP classes and names to user-facing roles and ignores unrelated HID collections', () => {
+    expect(windowsInputRole({ Class: 'Keyboard', Name: 'HID Keyboard Device' })).toBe('keyboard')
+    expect(windowsInputRole({ Class: 'Mouse', Name: 'HID-compliant touch pad' })).toBe('touchpad')
+    expect(windowsInputRole({ Class: 'Mouse', Name: 'Synaptics HID PointStyk' })).toBe('pointing stick')
+    expect(windowsInputRole({ Class: 'Mouse', Name: 'HID-compliant mouse' })).toBe('mouse')
+    expect(windowsInputRole({ Class: 'HIDClass', Name: 'Consumer Control' })).toBeNull()
+  })
+
+  it('lists input devices and radios from Windows, marking a disabled device as off', async () => {
+    const { items } = await windowsDevices(rig().run)
+    expect(items.map((i) => [i.id, i.role, i.enabled])).toEqual([
+      ['win.input:HID\\KBD\\1', 'keyboard', true], ['win.input:HID\\KBD\\2', 'keyboard', true],
+      ['win.input:HID\\MOUSE\\1', 'mouse', true], ['win.input:HID\\PAD\\1', 'touchpad', false],
+      ['win.radio:wifi:Wi-Fi', 'Wi-Fi radio (Intel(R) Wi-Fi 6 AX201 160MHz)', true],
+      ['win.radio:bluetooth:USB\\BT\\1', 'Bluetooth radio (Intel(R) Wireless Bluetooth(R))', true]
+    ])
+  })
+
+  it('switches a Windows input through Disable-PnpDevice and returns the persisted list', async () => {
+    const r = rig()
+    expect(await r.ctl.set('win.input:HID\\KBD\\1', false)).toEqual(['win.input:HID\\KBD\\1'])
+    expect(r.calls.some((c) => c.join(' ').includes("Disable-PnpDevice -InstanceId 'HID\\KBD\\1'"))).toBe(true)
+  })
+
+  it('switches Windows radios through the network adapter and PnP', async () => {
+    const wifi = rig()
+    await wifi.ctl.set('win.radio:wifi:Wi-Fi', false)
+    expect(wifi.calls.some((c) => c.join(' ').includes("Disable-NetAdapter -Name 'Wi-Fi'"))).toBe(true)
+    const bt = rig()
+    await bt.ctl.set('win.radio:bluetooth:USB\\BT\\1', false)
+    expect(bt.calls.some((c) => c.join(' ').includes("Disable-PnpDevice -InstanceId 'USB\\BT\\1'"))).toBe(true)
+  })
+
+  it('never switches off the last Windows keyboard or pointing device', async () => {
+    await expect(rig().ctl.set('win.input:HID\\MOUSE\\1', false)).rejects.toThrow(/only pointing device/)
+    // The second keyboard is already switched off, so the remaining one cannot be switched off.
+    const onlyOne = inputs.map((x) => (x.Id === 'HID\\KBD\\2' ? { ...x, Status: 'Error', Problem: 'CM_PROB_DISABLED' } : x))
+    const run: CommandRunner = async (_f, args) => (args.join(' ').includes('Keyboard,Mouse,HIDClass') ? ok(JSON.stringify(onlyOne)) : ok(JSON.stringify({ net: [], bt: [] })))
+    const ctl = new DeviceControl({ reader: new SysReader(tmpRoot()), run, env: {}, platform: 'win32', disabledInputs: () => ['win.input:HID\\KBD\\2'] })
+    await expect(ctl.set('win.input:HID\\KBD\\1', false)).rejects.toThrow(/only keyboard/)
+  })
+
+  it('re-applies saved Windows switches', async () => {
+    const r = rig({ disabled: ['win.input:HID\\KBD\\1'] })
+    await r.ctl.reapply()
+    expect(r.calls.some((c) => c.join(' ').includes("Disable-PnpDevice -InstanceId 'HID\\KBD\\1'"))).toBe(true)
+  })
+
+  it('explains a declined administrator prompt instead of claiming success', async () => {
+    const run: CommandRunner = async (file, args) => {
+      const script = args.join(' ')
+      if (script.includes('Keyboard,Mouse,HIDClass')) return ok(JSON.stringify(inputs))
+      if (script.includes('Get-NetAdapter')) return ok(JSON.stringify({ net: [], bt: [] }))
+      if (script.includes('IsInRole')) return ok('False')
+      return { ...ok(''), ok: false, code: 1, stderr: 'The operation was canceled by the user.' }
+    }
+    const ctl = new DeviceControl({ reader: new SysReader(tmpRoot()), run, env: {}, platform: 'win32', disabledInputs: () => [] })
+    await expect(ctl.set('win.input:HID\\KBD\\1', false)).rejects.toThrow(/Cancelled/)
   })
 })
 

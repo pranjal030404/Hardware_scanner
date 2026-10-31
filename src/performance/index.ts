@@ -6,7 +6,7 @@ import { BUILTIN_TITLES, builtinAssignments, makePlan, validate } from './profil
 import { StabilityService, type WorkloadFactory } from './stability'
 import { PerfLock, TuningService, type TxStore } from './transactions'
 import type { BuiltinProfileId, PerfApplyResult, PerfControl, PerfLive, PerfState, ProfilePlan, TestMode, TestProgress, TestSample, TestSession, TestStatus, TestSummary, TxRecord } from './types'
-import { windowsState } from './windows'
+import { WindowsPerformance } from './windows'
 
 export { CapabilityService, unlockedCpu, parseOd, isUnknown, type Assignment, type Snapshot } from './capabilities'
 export { builtinAssignments, makePlan, validate, ordered } from './profiles'
@@ -54,6 +54,7 @@ export class PerformanceService {
   readonly caps: CapabilityService
   readonly lock = new PerfLock()
   private tuning: TuningService
+  private windows: WindowsPerformance
   readonly tests: StabilityService
 
   constructor(private d: PerformanceDeps) {
@@ -69,6 +70,11 @@ export class PerformanceService {
         return { txId: d.store.lastTx(fp)?.id ?? null, profile: st.matches }
       },
       workload: d.workload, now: d.now ? () => d.now!().getTime() : undefined
+    })
+    this.windows = new WindowsPerformance({
+      run: d.run, store: d.store, tuningEnabled: d.tuningEnabled, limits: d.limits, threads: d.threads,
+      cpus: d.cpus ?? (() => []), exists: d.exists ?? (async () => false), now: d.now ?? (() => new Date()),
+      lock: this.lock, workload: d.workload
     })
   }
 
@@ -103,7 +109,7 @@ export class PerformanceService {
   }
 
   async state(snap?: Snapshot): Promise<PerfState> {
-    if (this.d.platform === 'win32') return windowsState({ run: this.d.run, cpus: this.d.cpus ?? (() => []), now: () => this.d.now?.() ?? new Date(), exists: this.d.exists ?? (async () => false) })
+    if (this.d.platform === 'win32') return this.windows.state()
     if (this.d.platform !== 'linux') {
       return { supported: false, monitoringOnly: true, reason: `Performance tuning is not implemented on ${this.d.platform}.`, platform: this.d.platform, fingerprint: '', tuningEnabled: false, helper: { usable: false, path: '', reason: null }, devices: [], telemetry: [], profiles: [], tuned: null, matches: null, lastTransaction: null, canUndo: false, canRestoreOriginal: false, busy: null }
     }
@@ -121,10 +127,10 @@ export class PerformanceService {
     }
   }
 
-  live(): Promise<PerfLive> { return this.caps.live() }
+  live(): Promise<PerfLive> { return this.d.platform === 'win32' ? this.windows.live() : this.caps.live() }
 
   private guard(): void {
-    if (this.d.platform !== 'linux') throw new Error('Tuning is only implemented on Linux.')
+    if (this.d.platform !== 'linux' && this.d.platform !== 'win32') throw new Error(`Tuning is not implemented on ${this.d.platform}.`)
     if (!this.d.tuningEnabled()) throw new Error('Tuning controls are switched off in Settings → Features & controls. Monitoring still works.')
   }
 
@@ -135,6 +141,7 @@ export class PerformanceService {
   /** Applies a built-in or saved profile. Only what differs is written; everything is read back. */
   async applyProfile(id: string): Promise<PerfApplyResult> {
     this.guard()
+    if (this.d.platform === 'win32') return this.windows.applyProfile(id)
     const s = await this.caps.snapshot()
     const { fp, controls } = await this.context(s)
     const plan = this.plans(s, fp, controls).find((p) => p.id === id)

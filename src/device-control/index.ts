@@ -1,6 +1,7 @@
 import type { SysReader } from '@collectors/core/sysreader'
 import type { CommandRunner } from '@collectors/core/runner'
 import type { DeviceControlItem, InputRole } from '../device-test/types'
+import { applyWindowsSwitch, guardWindowsSwitch, windowsDevices } from './windows'
 
 export interface DeviceControlDeps {
   reader: SysReader
@@ -140,6 +141,13 @@ export class DeviceControl {
   }
 
   async list(): Promise<{ items: DeviceControlItem[]; notes: string[] }> {
+    if (this.d.platform === 'win32') {
+      const { items, notes } = await windowsDevices(this.d.run)
+      return { items: items.map(({ target: _target, ...rest }) => rest), notes }
+    }
+    if (this.d.platform !== 'linux') {
+      return { items: [], notes: [`Switching individual devices is not implemented on ${this.d.platform}.`] }
+    }
     const off = new Set(this.d.disabledInputs())
     const notes: string[] = []
     const items: DeviceControlItem[] = []
@@ -165,6 +173,8 @@ export class DeviceControl {
 
   /** Switches one device. Returns the new disabled-input list for the caller to persist (unchanged for radios). */
   async set(id: string, enabled: boolean): Promise<string[]> {
+    if (this.d.platform === 'win32') return this.setWindows(id, enabled)
+    if (this.d.platform !== 'linux') throw new Error(`Switching individual devices is not implemented on ${this.d.platform}.`)
     const off = new Set(this.d.disabledInputs())
     if (id.startsWith('radio:')) {
       const radios = await this.radios()
@@ -197,10 +207,39 @@ export class DeviceControl {
     }
   }
 
-  /** Re-applies saved "off" switches: the compositor forgets them on logout and when a device is re-plugged. */
+  /** Windows: PnP input devices through Disable/Enable-PnpDevice, radios through the network adapter and PnP. */
+  private async setWindows(id: string, enabled: boolean): Promise<string[]> {
+    const off = new Set(this.d.disabledInputs())
+    const { items } = await windowsDevices(this.d.run)
+    const item = enabled ? items.find((x) => x.id === id) : guardWindowsSwitch(items, id)
+    if (!item) throw new Error('That device is not connected any more. Reload the list.')
+    if (item.enabled === enabled) {
+      if (enabled) off.delete(id)
+      else off.add(id)
+      return [...off]
+    }
+    await applyWindowsSwitch(this.d.run, item, enabled)
+    if (enabled) off.delete(id)
+    else off.add(id)
+    return [...off]
+  }
+
+  /** Re-applies saved "off" switches: Windows forgets them when a device is re-plugged or re-enabled. */
   async reapply(): Promise<void> {
     const off = new Set(this.d.disabledInputs())
     if (!off.size) return
+    if (this.d.platform === 'win32') {
+      const { items } = await windowsDevices(this.d.run)
+      for (const id of off) {
+        const item = items.find((x) => x.id === id)
+        if (!item || !item.enabled) continue
+        if (item.kind === 'input') guardWindowsSwitch(items, id)
+        await applyWindowsSwitch(this.d.run, item, false)
+        item.enabled = false
+      }
+      return
+    }
+    if (this.d.platform !== 'linux') return
     const { groups, reason } = await this.inputGroups()
     if (reason) return
     for (const g of groups) if (off.has(g.id)) await this.apply(g, false)

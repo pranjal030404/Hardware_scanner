@@ -60,7 +60,7 @@ export function DeviceSwitches(): JSX.Element {
   return (
     <fieldset className="feature-group" aria-label="Devices">
       <legend>Devices <small className="muted">{on} of {items.length} on</small></legend>
-      <p className="muted small">Switch individual devices on or off. Input devices are switched in the Hyprland session (no root needed; re-applied when the app starts or the device is re-plugged). The last keyboard and the last pointing device cannot be switched off.</p>
+      <p className="muted small">Switch individual devices on or off. Input devices and wireless radios are switched through the operating system (re-applied when the app starts or a device is re-plugged). Windows asks for administrator permission (UAC). The last keyboard and the last pointing device cannot be switched off.</p>
       {error && <div className="banner banner-bad" role="alert">{error}</div>}
       <div className="toggle-grid">
         {items.map((i) => (

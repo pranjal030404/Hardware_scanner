@@ -4,9 +4,11 @@ A desktop application (Electron + TypeScript + React + SQLite) that inventories 
 computer it runs on, keeps the inventory current as devices come and go, and shows how devices are
 connected. It works fully offline: no cloud account, no paid API, no telemetry.
 
-**Status:** early. Linux is implemented and tested on a real machine; Windows collectors exist but have
-only been tested against fixtures. See [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md)
-for exactly what works, what is partial and what is not built yet.
+**Status:** early. Linux is implemented and tested on a real machine. The Windows collectors have been
+executed on Windows from source, but only the `windows.system` collector completed in the verification run
+described below; the others hit their timeouts. A Windows installer has not been built. See
+[docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) for exactly what works, what is partial and
+what is not built yet.
 
 ## What it does today
 
@@ -37,32 +39,138 @@ for exactly what works, what is partial and what is not built yet.
 | Platform | Collectors | Live events | Tested |
 |---|---|---|---|
 | Linux (x64) | 16 | udev + polling fallback | Yes — fixtures **and** a real laptop (Fedora, kernel 7.x) |
-| Windows 10/11 x64 | 4 (PowerShell CIM/PnP); metrics: CPU + memory only | polling only | Fixture parsing only — **not run on Windows** |
+| Windows 10/11 x64 | 5 (PowerShell CIM/PnP); metrics: CPU + memory only | polling only | Launched from source on Windows 11 (Node 24.21, Electron 44.9.1). `windows.system` completed with 6 devices; the other collectors timed out in that run. Full runtime validation still pending. |
 | macOS | none | none | No |
 
 ## Requirements
 
-- Node.js 24+ (the app uses the built-in `node:sqlite`; Electron 44 ships a compatible Node, so no
-  native module rebuilds are needed).
-- Linux: `/sys` and `/proc` readable; optional tools improve results: `udevadm` (live events),
-  `hwdata` (device names), `bluetoothctl` (paired devices), `smartctl` (drive health).
+- Node.js 24+ (verified with Node 24.21.0). The app uses the built-in `node:sqlite`; Electron 44 ships a
+  compatible Node, so no native module rebuilds are needed.
+- npm (verified with npm 11.19.0).
+- Windows 10/11 x64 with PowerShell 5.1+ (the Windows collectors run fixed `powershell.exe` commands), or
+  Linux x64.
+- A display for the desktop UI. The CLI scripts (`scan`, `watch`) run headless.
+- Linux extras (optional): `/sys` and `/proc` readable; `udevadm` (live events), `hwdata` (device names),
+  `bluetoothctl` (paired devices), `smartctl` (drive health).
 
-## Development
+## Running the app
 
-```bash
+These are the complete steps. Commands are shown for PowerShell on Windows; the same npm scripts work in a
+Linux shell.
+
+### 1. Install dependencies
+
+```powershell
+cd C:\vscode\Hardware_scanner
 npm ci
-npm run dev          # Electron + Vite with hot reload
-npm run typecheck
-npm test             # unit/integration tests (vitest, 255 tests)
-npm run build        # production bundles in out/
-npm run start        # run the built app
-npm run test:e2e     # builds, then drives the real app (needs a display; see docs/TESTING.md)
-npm run scan         # run all collectors against this machine and print a summary (--list, --json)
-npm run watch        # run the live pipeline headless and print hardware events (plug a USB device!)
 ```
 
-The database lives in the Electron `userData` directory (`inventory.sqlite`); set `HIP_DB_PATH` to use
-another file (development/test runs only; a packaged app ignores it).
+`npm ci` installs exactly what `package-lock.json` pins, including Electron 44.9.1. If the Electron binary
+was not downloaded (for example `node_modules\electron\dist\electron.exe` is missing), install it
+explicitly — this downloads roughly 250 MB and may take a few minutes:
+
+```powershell
+node node_modules\electron\install.js
+```
+
+You can verify it worked:
+
+```powershell
+Test-Path node_modules\electron\dist\electron.exe   # must print True
+```
+
+### 2. Build the app
+
+```powershell
+npm run build
+```
+
+This writes the production bundles to `out/` (`out/main`, `out/preload`, `out/renderer`). The preload bundle
+must exist or the window will open blank and `window.hip` will be undefined.
+
+### 3. Start it
+
+For development with hot reload:
+
+```powershell
+npm run dev
+```
+
+To run the production build you just made:
+
+```powershell
+npm run start
+```
+
+Both commands launch Electron and open the **Hardware Intelligence Platform** window. The app starts its
+first inventory scan immediately; results appear on the Overview and Hardware pages. The same app can be
+started directly with the Electron binary if needed:
+
+```powershell
+.\node_modules\electron\dist\electron.exe out\main\index.js
+```
+
+Close the window (or press Ctrl+C in the terminal) to stop it.
+
+### 4. Optional headless commands
+
+```powershell
+npm run scan          # run all collectors for this machine and print a summary (--list, --json)
+npm run watch         # run the live event pipeline headless and print hardware events
+npm run typecheck     # TypeScript check (passes on Windows)
+```
+
+### 5. Where the data lives
+
+The SQLite database is `inventory.sqlite` in Electron's `userData` directory:
+
+| Run mode | Windows | Linux |
+|---|---|---|
+| From source (`npm run dev` / `npm run start`) | `%APPDATA%\Hardware Intelligence Platform\inventory.sqlite` | `~/.config/Hardware Intelligence Platform/inventory.sqlite` |
+| Direct Electron binary (`electron out/main/index.js`) | `%APPDATA%\Electron\inventory.sqlite` | `~/.config/Electron/inventory.sqlite` |
+| Packaged build | `%APPDATA%\Hardware Intelligence Platform\inventory.sqlite` | `~/.config/Hardware Intelligence Platform/inventory.sqlite` |
+
+Set `HIP_DB_PATH` to use another file (development/test runs only; a packaged app ignores it). Upgrades
+migrate with a `.pre-vN.bak` backup; a database from a newer release is refused untouched.
+
+### 6. Tests
+
+```powershell
+npm run typecheck
+npm test
+```
+
+The unit/integration suite is written for Linux fixtures. On Windows, `npm run typecheck` passes, but
+`npm test` currently reports failures: many fixture tests create symlinks (`EPERM` without Developer Mode or
+elevation), some assert POSIX paths, and a few performance limits are tuned for the Linux dev machine. Run
+the full suite on Linux or WSL. `npm run test:e2e` also needs a display and is Linux-oriented.
+
+### 7. Package an installer (optional)
+
+```powershell
+npm run package:linux   # Linux AppImage -> dist/
+npm run package:win     # Windows NSIS installer -> dist/ (run on Windows)
+```
+
+Builds are unsigned and nothing publishes a release automatically. See [docs/PACKAGING.md](docs/PACKAGING.md)
+for the full detail and evidence.
+
+## Verification run (Windows 11 x64)
+
+This checkout was verified on 2026-10-31 with Node 24.21.0, npm 11.19.0 and Electron 44.9.1:
+
+- `npm run build` completed (main 578 kB, preload 5.6 kB, renderer 1.7 MB).
+- `npm run typecheck` completed with no errors.
+- The built app launched with `npm run start` and directly with the Electron binary; the window titled
+  **Hardware Intelligence Platform** was responsive, and `npm run start` created the database under
+  `%APPDATA%\Hardware Intelligence Platform`.
+- The first scan stored 6 devices (`system` 1, `motherboard` 1, `cpu` 1, `memory` 3) from
+  `windows.system`.
+- `windows.pnp`, `windows.network`, `windows.storage` and `windows.hardware` reported `unavailable` with
+  `PowerShell query timed out` at their configured limits (110 s, 15 s, 15 s, 25 s), and
+  `windows.hardware` once reported invalid output. These are open Windows issues, not test failures.
+- `npm test` collected 458 tests: 383 passed, 36 skipped and 39 failed, all from Windows/Linux fixture
+  mismatches (symlink permissions, POSIX paths, performance thresholds).
 
 ## Permissions
 
@@ -101,6 +209,9 @@ checklist: [docs/PACKAGING.md](docs/PACKAGING.md).
 ## Troubleshooting
 
 - **Blank window / `window.hip` undefined**: run `npm run build` (the preload script must exist in `out/`).
+- **`Downloading Electron binary...` then nothing / Electron will not start**: the Electron binary is
+  missing. Run `node node_modules\electron\install.js` and confirm `node_modules\electron\dist\electron.exe`
+  exists.
 - **`Failed to ... Vulkan` / ozone messages on Wayland**: harmless Chromium GPU warnings.
 - **Electron sandbox errors on some Linux setups**: the app keeps the renderer sandbox on. If your
   distribution restricts unprivileged user namespaces, see Electron's sandbox documentation rather than
@@ -109,9 +220,13 @@ checklist: [docs/PACKAGING.md](docs/PACKAGING.md).
 - **"Database schema vN is newer than this application"**: you are running an older build against a
   database written by a newer one. Nothing was modified; update the application.
 - **Live monitoring says "degraded"**: `udevadm` could not be started; the app is polling instead.
+- **Windows collectors report `PowerShell query timed out`**: the fixed PowerShell commands can be slow on a
+  cold start. Re-run the scan after the first one finishes; the collectors report the timeout honestly
+  instead of an empty inventory. This is a known Windows limitation, not a database failure.
+- **`npm test` fails on Windows with `EPERM ... symlink`**: enable Windows Developer Mode (or run the suite
+  in WSL/Linux). The fixture helpers create symlinks and POSIX paths.
 
 ## Documentation
 
 [Architecture](docs/ARCHITECTURE.md) · [Collectors](docs/COLLECTORS.md) · [Security](docs/SECURITY.md) ·
 [Testing](docs/TESTING.md) · [Packaging](docs/PACKAGING.md) · [Roadmap](docs/ROADMAP.md) · [Implementation status](docs/IMPLEMENTATION_STATUS.md)
-# Hardware_scanner
